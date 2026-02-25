@@ -192,7 +192,7 @@ public class DocumentEndpointsTests
 
         response.Body.Position = 0;
         using var ms = new MemoryStream();
-        await response.Body.CopyToAsync(ms);
+        await response.Body.CopyToAsync(ms, TestContext.Current.CancellationToken);
         var resultBytes = ms.ToArray();
         resultBytes.Length.Should().BeGreaterThan(0);
         // Verify it starts with %PDF

@@ -175,7 +175,7 @@ metadata:
 
         capturedRequest.Should().NotBeNull();
         capturedRequest.Method.Should().Be(HttpMethod.Post);
-        var bodyContent = await capturedRequest.Content.ReadAsStringAsync();
+        var bodyContent = await capturedRequest.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         var body = JsonDocument.Parse(bodyContent);
         body.RootElement.TryGetProperty("status", out var statusProp).Should().BeTrue();
         statusProp.GetString().Should().Be("failed");
