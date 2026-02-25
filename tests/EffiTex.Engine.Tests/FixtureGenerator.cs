@@ -1,3 +1,5 @@
+using System.Text;
+using iText.IO.Font;
 using iText.Kernel.Font;
 using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
@@ -154,6 +156,116 @@ public static class FixtureGenerator
 
         pdf.Close();
         return path;
+    }
+
+    public static string EnsureMixedFonts()
+    {
+        var path = GetFixturePath("mixed_fonts.pdf");
+        if (File.Exists(path)) return path;
+
+        using var writer = new PdfWriter(path);
+        using var pdf = new PdfDocument(writer);
+
+        // Page 1: CIDFontType2 (embedded TrueType) + standard Type1
+        var page1 = pdf.AddNewPage(PageSize.LETTER);
+        var canvas1 = new PdfCanvas(page1);
+
+        // CIDFontType2: embed a system TrueType font with Identity-H encoding
+        var arialPath = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.Fonts), "arial.ttf");
+        if (!File.Exists(arialPath))
+            arialPath = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Fonts), "segoeui.ttf");
+
+        var cidFont = PdfFontFactory.CreateFont(arialPath, PdfEncodings.IDENTITY_H,
+            PdfFontFactory.EmbeddingStrategy.FORCE_EMBEDDED);
+        canvas1.BeginText()
+            .SetFontAndSize(cidFont, 14)
+            .MoveText(72, 700)
+            .ShowText("CID Font Text ABC")
+            .EndText();
+
+        // Standard Type1 font (not embedded)
+        var type1Font = PdfFontFactory.CreateFont("Helvetica");
+        canvas1.BeginText()
+            .SetFontAndSize(type1Font, 12)
+            .MoveText(72, 660)
+            .ShowText("Type1 Text")
+            .EndText();
+
+        // Page 2: Type3 font (manually constructed)
+        var page2 = pdf.AddNewPage(PageSize.LETTER);
+        addType3Font(pdf, page2);
+
+        pdf.Close();
+        return path;
+    }
+
+    private static void addType3Font(PdfDocument pdf, PdfPage page)
+    {
+        // Build a Type3 font with custom glyph names (no AGL mapping → unmappable)
+        var fontDict = new PdfDictionary();
+        fontDict.Put(PdfName.Type, PdfName.Font);
+        fontDict.Put(PdfName.Subtype, new PdfName("Type3"));
+        fontDict.Put(new PdfName("FontBBox"), new PdfArray(new int[] { 0, 0, 1000, 800 }));
+        fontDict.Put(new PdfName("FontMatrix"), new PdfArray(new float[] { 0.001f, 0, 0, 0.001f, 0, 0 }));
+        fontDict.Put(PdfName.FirstChar, new PdfNumber(65)); // 'A'
+        fontDict.Put(PdfName.LastChar, new PdfNumber(67));   // 'C'
+        fontDict.Put(PdfName.Widths, new PdfArray(new int[] { 600, 500, 550 }));
+
+        // Encoding with Differences using non-AGL glyph names
+        var encodingDict = new PdfDictionary();
+        var differences = new PdfArray();
+        differences.Add(new PdfNumber(65));
+        differences.Add(new PdfName("glyph0"));
+        differences.Add(new PdfName("glyph1"));
+        differences.Add(new PdfName("glyph2"));
+        encodingDict.Put(new PdfName("Differences"), differences);
+        fontDict.Put(PdfName.Encoding, encodingDict);
+
+        // CharProcs — glyph drawing procedures
+        var charProcs = new PdfDictionary();
+
+        var streamA = new PdfStream(Encoding.ASCII.GetBytes(
+            "600 0 0 0 600 800 d1\n100 100 400 600 re f\n"));
+        streamA.MakeIndirect(pdf);
+        charProcs.Put(new PdfName("glyph0"), streamA);
+
+        var streamB = new PdfStream(Encoding.ASCII.GetBytes(
+            "500 0 0 0 500 800 d1\n50 400 m 50 600 250 750 450 600 c 450 200 250 50 50 200 c h f\n"));
+        streamB.MakeIndirect(pdf);
+        charProcs.Put(new PdfName("glyph1"), streamB);
+
+        var streamC = new PdfStream(Encoding.ASCII.GetBytes(
+            "550 0 0 0 550 800 d1\n275 750 m 50 50 l 500 50 l h f\n"));
+        streamC.MakeIndirect(pdf);
+        charProcs.Put(new PdfName("glyph2"), streamC);
+
+        fontDict.Put(new PdfName("CharProcs"), charProcs);
+        fontDict.MakeIndirect(pdf);
+
+        // Register font in page resources
+        var pageDict = page.GetPdfObject();
+        var resources = pageDict.GetAsDictionary(PdfName.Resources);
+        if (resources == null)
+        {
+            resources = new PdfDictionary();
+            pageDict.Put(PdfName.Resources, resources);
+        }
+        var fontsRes = resources.GetAsDictionary(PdfName.Font);
+        if (fontsRes == null)
+        {
+            fontsRes = new PdfDictionary();
+            resources.Put(PdfName.Font, fontsRes);
+        }
+        fontsRes.Put(new PdfName("T3F1"), fontDict);
+
+        // Write content stream using the Type3 font
+        var contentBytes = Encoding.ASCII.GetBytes(
+            "BT\n/T3F1 24 Tf\n72 700 Td\n(ABC) Tj\nET\n");
+        var contentStream = new PdfStream(contentBytes);
+        contentStream.MakeIndirect(pdf);
+        pageDict.Put(PdfName.Contents, contentStream);
     }
 
     public static string CreateTempPdf()

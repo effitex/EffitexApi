@@ -6,8 +6,8 @@ public class PageInfo
     public float Width { get; set; }
     public float Height { get; set; }
     public string TabOrder { get; set; }
-    public List<object> ContentOperators { get; set; } = new();
-    public List<object> Annotations { get; set; } = new();
-    public List<object> Fonts { get; set; } = new();
+    public List<ContentOperatorInfo> ContentOperators { get; set; } = new();
+    public List<AnnotationInfo> Annotations { get; set; } = new();
+    public List<FontInfo> Fonts { get; set; } = new();
     public List<int> StructuredMcids { get; set; }
 }

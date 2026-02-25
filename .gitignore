@@ -419,3 +419,6 @@ FodyWeavers.xsd
 
 # Spec Folder
 /spec/
+
+# .claude Folder
+/.claude/

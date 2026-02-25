@@ -1,7 +1,13 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using EffiTex.Engine.Models.Inspect;
+using iText.Kernel.Colors;
+using iText.Kernel.Geom;
 using iText.Kernel.Pdf;
+using iText.Kernel.Pdf.Canvas.Parser;
+using iText.Kernel.Pdf.Canvas.Parser.Data;
+using iText.Kernel.Pdf.Canvas.Parser.Listener;
 using iText.Kernel.Pdf.Tagging;
 using iText.Kernel.XMP;
 using iText.Kernel.XMP.Options;
@@ -373,6 +379,7 @@ public class InspectHandler
                 Width = mediaBox.GetWidth(),
                 Height = mediaBox.GetHeight(),
                 TabOrder = tabOrder,
+                Fonts = readPageFonts(pdf, i),
                 StructuredMcids = readStructuredMcids(pdf, i)
             };
 
@@ -380,6 +387,902 @@ public class InspectHandler
         }
 
         return pages;
+    }
+
+    private static List<FontInfo> readPageFonts(PdfDocument pdf, int pageNumber)
+    {
+        var fonts = new List<FontInfo>();
+        var page = pdf.GetPage(pageNumber);
+        var pageDict = page.GetPdfObject();
+
+        var resources = pageDict.GetAsDictionary(PdfName.Resources);
+        if (resources == null) return fonts;
+
+        var fontDict = resources.GetAsDictionary(PdfName.Font);
+        if (fontDict == null) return fonts;
+
+        foreach (var entry in fontDict.EntrySet())
+        {
+            var resourceKey = entry.Key.GetValue();
+            var fontObj = entry.Value;
+
+            if (fontObj is PdfIndirectReference indirectRef)
+                fontObj = indirectRef.GetRefersTo();
+
+            if (fontObj is not PdfDictionary fd)
+                continue;
+
+            var fontInfo = buildFontInfo(fd, resourceKey, pageNumber);
+            fonts.Add(fontInfo);
+        }
+
+        return fonts;
+    }
+
+    private static FontInfo buildFontInfo(PdfDictionary fontDict, string resourceKey, int pageNumber)
+    {
+        var subtype = fontDict.GetAsName(PdfName.Subtype)?.GetValue();
+        var baseFont = fontDict.GetAsName(PdfName.BaseFont)?.GetValue();
+        var name = baseFont ?? resourceKey;
+
+        var fontDescriptor = fontDict.GetAsDictionary(PdfName.FontDescriptor);
+        var hasFontDescriptor = fontDescriptor != null;
+        var isEmbedded = checkIsEmbedded(fontDescriptor);
+        var isSymbolic = checkIsSymbolic(fontDescriptor);
+        var hasTounicode = fontDict.Get(PdfName.ToUnicode) != null;
+        var hasCharset = fontDescriptor?.Get(new PdfName("CharSet")) != null;
+        var hasCidset = fontDescriptor?.Get(new PdfName("CIDSet")) != null;
+        var encoding = readFontEncoding(fontDict);
+        var encodingDetail = readEncodingDetail(fontDict);
+        var dictionaryWidths = readDictionaryWidths(fontDict, subtype);
+
+        var fontInfo = new FontInfo
+        {
+            Name = name,
+            FontType = subtype,
+            IsEmbedded = isEmbedded,
+            IsSymbolic = isSymbolic,
+            HasTounicode = hasTounicode,
+            HasNotdefGlyph = false,
+            Encoding = encoding,
+            PageNumber = pageNumber,
+            HasCharset = hasCharset,
+            HasCidset = hasCidset,
+            HasFontDescriptor = hasFontDescriptor,
+            EncodingDetail = encodingDetail,
+            DictionaryWidths = dictionaryWidths,
+            TounicodeMappings = hasTounicode ? parseTounicode(fontDict) : new Dictionary<string, string>(),
+            CharsetGlyphNames = hasCharset ? parseCharset(fontDescriptor) : new List<string>(),
+            CidsetCids = hasCidset ? parseCidset(fontDescriptor) : new List<int>(),
+            FontProgramGlyphNames = new List<string>(),
+            FontProgramCids = new List<int>(),
+            FontProgramWidths = new Dictionary<string, float>(),
+            UnmappableCharCodes = new List<int>(),
+            CmapSubtables = new List<CmapSubtableData>(),
+            Type1GlyphNames = new List<string>()
+        };
+
+        if (subtype == "Type0")
+        {
+            readType0FontInfo(fontDict, fontInfo);
+        }
+        else if (subtype == "Type3")
+        {
+            fontInfo.Type3Info = readType3FontInfo(fontDict);
+        }
+
+        // Parse font program binary for glyph names, CIDs, and widths
+        parseFontProgramData(fontDict, fontDescriptor, fontInfo);
+
+        // Detect unmappable character codes
+        detectUnmappableCharCodes(fontDict, fontInfo);
+
+        return fontInfo;
+    }
+
+    private static bool checkIsEmbedded(PdfDictionary fontDescriptor)
+    {
+        if (fontDescriptor == null) return false;
+        return fontDescriptor.Get(new PdfName("FontFile")) != null
+            || fontDescriptor.Get(new PdfName("FontFile2")) != null
+            || fontDescriptor.Get(new PdfName("FontFile3")) != null;
+    }
+
+    private static bool checkIsSymbolic(PdfDictionary fontDescriptor)
+    {
+        if (fontDescriptor == null) return false;
+        var flags = fontDescriptor.GetAsNumber(PdfName.Flags);
+        if (flags == null) return false;
+        return (flags.IntValue() & (1 << 2)) != 0;
+    }
+
+    private static string readFontEncoding(PdfDictionary fontDict)
+    {
+        var encodingObj = fontDict.Get(PdfName.Encoding);
+        if (encodingObj == null) return null;
+
+        if (encodingObj is PdfName encodingName)
+            return encodingName.GetValue();
+
+        if (encodingObj is PdfDictionary encodingDict)
+        {
+            var baseEncoding = encodingDict.GetAsName(new PdfName("BaseEncoding"));
+            return baseEncoding?.GetValue() ?? "Dictionary";
+        }
+
+        return encodingObj.ToString();
+    }
+
+    private static EncodingDetailData readEncodingDetail(PdfDictionary fontDict)
+    {
+        var encodingObj = fontDict.Get(PdfName.Encoding);
+        if (encodingObj == null) return null;
+
+        if (encodingObj is PdfName)
+            return null;
+
+        if (encodingObj is PdfDictionary encodingDict)
+        {
+            var baseEncoding = encodingDict.GetAsName(new PdfName("BaseEncoding"))?.GetValue();
+            var differencesArr = encodingDict.GetAsArray(new PdfName("Differences"));
+            var differencesGlyphNames = new List<string>();
+
+            if (differencesArr != null)
+            {
+                for (int i = 0; i < differencesArr.Size(); i++)
+                {
+                    var item = differencesArr.Get(i);
+                    if (item is PdfName glyphName)
+                        differencesGlyphNames.Add(glyphName.GetValue());
+                }
+            }
+
+            return new EncodingDetailData
+            {
+                IsDictionary = true,
+                BaseEncoding = baseEncoding,
+                HasDifferencesArray = differencesArr != null,
+                DifferencesGlyphNames = differencesGlyphNames
+            };
+        }
+
+        return null;
+    }
+
+    private static Dictionary<string, float> readDictionaryWidths(PdfDictionary fontDict, string subtype)
+    {
+        var widths = new Dictionary<string, float>();
+
+        if (subtype == "Type0")
+        {
+            var descendantFonts = fontDict.GetAsArray(new PdfName("DescendantFonts"));
+            if (descendantFonts != null && descendantFonts.Size() > 0)
+            {
+                var cidFont = descendantFonts.GetAsDictionary(0);
+                if (cidFont != null)
+                {
+                    readCidWidths(cidFont, widths);
+                }
+            }
+            return widths;
+        }
+
+        var widthsArr = fontDict.GetAsArray(PdfName.Widths);
+        if (widthsArr == null) return widths;
+
+        var firstChar = fontDict.GetAsNumber(PdfName.FirstChar);
+        if (firstChar == null) return widths;
+
+        int first = firstChar.IntValue();
+        for (int i = 0; i < widthsArr.Size(); i++)
+        {
+            var w = widthsArr.GetAsNumber(i);
+            if (w != null)
+            {
+                widths[(first + i).ToString()] = w.FloatValue();
+            }
+        }
+
+        return widths;
+    }
+
+    private static void readCidWidths(PdfDictionary cidFont, Dictionary<string, float> widths)
+    {
+        var wArr = cidFont.GetAsArray(new PdfName("W"));
+        if (wArr == null) return;
+
+        int i = 0;
+        while (i < wArr.Size())
+        {
+            var cidStart = wArr.GetAsNumber(i);
+            if (cidStart == null) break;
+            int startCid = cidStart.IntValue();
+            i++;
+
+            if (i >= wArr.Size()) break;
+
+            var next = wArr.Get(i);
+            if (next is PdfArray widthList)
+            {
+                for (int j = 0; j < widthList.Size(); j++)
+                {
+                    var w = widthList.GetAsNumber(j);
+                    if (w != null)
+                    {
+                        widths[(startCid + j).ToString()] = w.FloatValue();
+                    }
+                }
+                i++;
+            }
+            else if (next is PdfNumber cidEnd)
+            {
+                i++;
+                if (i >= wArr.Size()) break;
+                var widthVal = wArr.GetAsNumber(i);
+                if (widthVal != null)
+                {
+                    for (int cid = startCid; cid <= cidEnd.IntValue(); cid++)
+                    {
+                        widths[cid.ToString()] = widthVal.FloatValue();
+                    }
+                }
+                i++;
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+
+    private static Dictionary<string, string> parseTounicode(PdfDictionary fontDict)
+    {
+        var mappings = new Dictionary<string, string>();
+        var toUnicodeObj = fontDict.Get(PdfName.ToUnicode);
+        if (toUnicodeObj == null) return mappings;
+
+        PdfStream toUnicodeStream = null;
+        if (toUnicodeObj is PdfStream stream)
+        {
+            toUnicodeStream = stream;
+        }
+        else if (toUnicodeObj is PdfIndirectReference indRef)
+        {
+            var refersTo = indRef.GetRefersTo();
+            if (refersTo is PdfStream refStream)
+                toUnicodeStream = refStream;
+        }
+
+        if (toUnicodeStream == null) return mappings;
+
+        try
+        {
+            var bytes = toUnicodeStream.GetBytes();
+            if (bytes == null || bytes.Length == 0) return mappings;
+
+            var cmapContent = System.Text.Encoding.UTF8.GetString(bytes);
+            parseCharMappings(cmapContent, mappings);
+            parseRangeMappings(cmapContent, mappings);
+        }
+        catch
+        {
+            // Ignore parse errors
+        }
+
+        return mappings;
+    }
+
+    private static void parseCharMappings(string cmapContent, Dictionary<string, string> mappings)
+    {
+        var charPattern = new Regex(@"beginbfchar\s*(.*?)\s*endbfchar", RegexOptions.Singleline);
+        var charMatches = charPattern.Matches(cmapContent);
+        var entryPattern = new Regex(@"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>");
+
+        foreach (Match charMatch in charMatches)
+        {
+            var entries = entryPattern.Matches(charMatch.Groups[1].Value);
+            foreach (Match entry in entries)
+            {
+                var srcHex = entry.Groups[1].Value;
+                var dstHex = entry.Groups[2].Value;
+                mappings[srcHex.ToUpperInvariant()] = hexToUnicodeString(dstHex);
+            }
+        }
+    }
+
+    private static void parseRangeMappings(string cmapContent, Dictionary<string, string> mappings)
+    {
+        var rangePattern = new Regex(@"beginbfrange\s*(.*?)\s*endbfrange", RegexOptions.Singleline);
+        var rangeMatches = rangePattern.Matches(cmapContent);
+        var entryPattern = new Regex(@"<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>");
+
+        foreach (Match rangeMatch in rangeMatches)
+        {
+            var entries = entryPattern.Matches(rangeMatch.Groups[1].Value);
+            foreach (Match entry in entries)
+            {
+                var startHex = entry.Groups[1].Value;
+                var endHex = entry.Groups[2].Value;
+                var dstHex = entry.Groups[3].Value;
+
+                int start = Convert.ToInt32(startHex, 16);
+                int end = Convert.ToInt32(endHex, 16);
+                int dst = Convert.ToInt32(dstHex, 16);
+
+                for (int code = start; code <= end; code++)
+                {
+                    var srcKey = code.ToString("X").PadLeft(startHex.Length, '0');
+                    mappings[srcKey] = char.ConvertFromUtf32(dst + (code - start));
+                }
+            }
+        }
+    }
+
+    private static string hexToUnicodeString(string hex)
+    {
+        if (hex.Length <= 4)
+        {
+            int codePoint = Convert.ToInt32(hex, 16);
+            return char.ConvertFromUtf32(codePoint);
+        }
+
+        var sb = new StringBuilder();
+        for (int i = 0; i < hex.Length; i += 4)
+        {
+            var chunk = hex.Substring(i, Math.Min(4, hex.Length - i));
+            int codePoint = Convert.ToInt32(chunk, 16);
+            sb.Append(char.ConvertFromUtf32(codePoint));
+        }
+        return sb.ToString();
+    }
+
+    private static List<string> parseCharset(PdfDictionary fontDescriptor)
+    {
+        var glyphNames = new List<string>();
+        if (fontDescriptor == null) return glyphNames;
+
+        var charsetObj = fontDescriptor.Get(new PdfName("CharSet"));
+        if (charsetObj == null) return glyphNames;
+
+        string charsetStr = null;
+        if (charsetObj is PdfString pdfStr)
+            charsetStr = pdfStr.GetValue();
+        else if (charsetObj is PdfName pdfName)
+            charsetStr = pdfName.GetValue();
+
+        if (string.IsNullOrEmpty(charsetStr)) return glyphNames;
+
+        var names = charsetStr.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var n in names)
+        {
+            var trimmed = n.Trim();
+            if (!string.IsNullOrEmpty(trimmed))
+                glyphNames.Add(trimmed);
+        }
+
+        return glyphNames;
+    }
+
+    private static List<int> parseCidset(PdfDictionary fontDescriptor)
+    {
+        var cids = new List<int>();
+        if (fontDescriptor == null) return cids;
+
+        var cidsetObj = fontDescriptor.Get(new PdfName("CIDSet"));
+        if (cidsetObj == null) return cids;
+
+        PdfStream cidsetStream = null;
+        if (cidsetObj is PdfStream stream)
+        {
+            cidsetStream = stream;
+        }
+        else if (cidsetObj is PdfIndirectReference indRef)
+        {
+            var refersTo = indRef.GetRefersTo();
+            if (refersTo is PdfStream refStream)
+                cidsetStream = refStream;
+        }
+
+        if (cidsetStream == null) return cids;
+
+        try
+        {
+            var bytes = cidsetStream.GetBytes();
+            if (bytes == null) return cids;
+
+            for (int byteIdx = 0; byteIdx < bytes.Length; byteIdx++)
+            {
+                for (int bit = 7; bit >= 0; bit--)
+                {
+                    if ((bytes[byteIdx] & (1 << bit)) != 0)
+                    {
+                        cids.Add(byteIdx * 8 + (7 - bit));
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Ignore parse errors
+        }
+
+        return cids;
+    }
+
+    private static void readType0FontInfo(PdfDictionary fontDict, FontInfo fontInfo)
+    {
+        var descendantFonts = fontDict.GetAsArray(new PdfName("DescendantFonts"));
+        if (descendantFonts == null || descendantFonts.Size() == 0) return;
+
+        var cidFont = descendantFonts.GetAsDictionary(0);
+        if (cidFont == null) return;
+
+        var cidFontSubtype = cidFont.GetAsName(PdfName.Subtype)?.GetValue();
+        if (cidFontSubtype != null)
+        {
+            fontInfo.FontType = cidFontSubtype;
+        }
+
+        var cidSystemInfo = cidFont.GetAsDictionary(new PdfName("CIDSystemInfo"));
+        if (cidSystemInfo != null)
+        {
+            fontInfo.CidSystemInfo = new CidSystemInfoData
+            {
+                Registry = cidSystemInfo.GetAsString(new PdfName("Registry"))?.GetValue(),
+                Ordering = cidSystemInfo.GetAsString(new PdfName("Ordering"))?.GetValue(),
+                Supplement = cidSystemInfo.GetAsNumber(new PdfName("Supplement"))?.IntValue() ?? 0
+            };
+        }
+
+        var cidToGidMap = cidFont.Get(new PdfName("CIDToGIDMap"));
+        if (cidToGidMap != null)
+        {
+            fontInfo.CidToGidMap = new CidToGidMapData
+            {
+                Present = true,
+                IsValid = cidToGidMap is PdfStream || (cidToGidMap is PdfName mapName && mapName.GetValue() == "Identity")
+            };
+        }
+
+        var cidFontDescriptor = cidFont.GetAsDictionary(PdfName.FontDescriptor);
+        if (cidFontDescriptor != null && !fontInfo.HasFontDescriptor)
+        {
+            fontInfo.HasFontDescriptor = true;
+            fontInfo.IsEmbedded = checkIsEmbedded(cidFontDescriptor);
+            fontInfo.IsSymbolic = checkIsSymbolic(cidFontDescriptor);
+            fontInfo.HasCharset = cidFontDescriptor.Get(new PdfName("CharSet")) != null;
+            fontInfo.HasCidset = cidFontDescriptor.Get(new PdfName("CIDSet")) != null;
+            if (fontInfo.HasCidset)
+                fontInfo.CidsetCids = parseCidset(cidFontDescriptor);
+            if (fontInfo.HasCharset)
+                fontInfo.CharsetGlyphNames = parseCharset(cidFontDescriptor);
+        }
+    }
+
+    private static Type3FontInfoData readType3FontInfo(PdfDictionary fontDict)
+    {
+        var type3Info = new Type3FontInfoData
+        {
+            CharProcsGlyphNames = new List<string>(),
+            EncodedGlyphNames = new List<string>(),
+            UsedCharCodes = new List<int>(),
+            TounicodeMappings = new Dictionary<string, string>(),
+            HasFontDescriptor = fontDict.GetAsDictionary(PdfName.FontDescriptor) != null
+        };
+
+        var charProcs = fontDict.GetAsDictionary(new PdfName("CharProcs"));
+        if (charProcs != null)
+        {
+            foreach (var key in charProcs.KeySet())
+            {
+                type3Info.CharProcsGlyphNames.Add(key.GetValue());
+            }
+        }
+
+        var encodingObj = fontDict.Get(PdfName.Encoding);
+        if (encodingObj is PdfDictionary encDict)
+        {
+            var differences = encDict.GetAsArray(new PdfName("Differences"));
+            if (differences != null)
+            {
+                for (int i = 0; i < differences.Size(); i++)
+                {
+                    var item = differences.Get(i);
+                    if (item is PdfName glyphName)
+                        type3Info.EncodedGlyphNames.Add(glyphName.GetValue());
+                }
+            }
+        }
+
+        if (fontDict.Get(PdfName.ToUnicode) != null)
+        {
+            type3Info.TounicodeMappings = parseTounicode(fontDict);
+        }
+
+        return type3Info;
+    }
+
+    private static void parseFontProgramData(PdfDictionary fontDict, PdfDictionary fontDescriptor, FontInfo fontInfo)
+    {
+        // For Type0 fonts, check the descendant CID font's descriptor
+        var descriptor = fontDescriptor;
+        if (descriptor == null && fontInfo.FontType == "CIDFontType2")
+        {
+            // Already extracted by readType0FontInfo
+        }
+        if (fontDict.GetAsName(PdfName.Subtype)?.GetValue() == "Type0")
+        {
+            var descendantFonts = fontDict.GetAsArray(new PdfName("DescendantFonts"));
+            if (descendantFonts != null && descendantFonts.Size() > 0)
+            {
+                var cidFont = descendantFonts.GetAsDictionary(0);
+                if (cidFont != null)
+                    descriptor = cidFont.GetAsDictionary(PdfName.FontDescriptor);
+            }
+        }
+
+        if (descriptor == null) return;
+
+        // Try FontFile2 (TrueType)
+        var fontFile2 = getFontStream(descriptor, "FontFile2");
+        if (fontFile2 != null)
+        {
+            parseTrueTypeFontProgram(fontFile2, fontInfo);
+            return;
+        }
+
+        // Try FontFile3 (CFF / OpenType CFF)
+        var fontFile3 = getFontStream(descriptor, "FontFile3");
+        if (fontFile3 != null)
+        {
+            parseCffFontProgram(fontFile3, fontInfo);
+            return;
+        }
+
+        // Try FontFile (Type1)
+        var fontFile = getFontStream(descriptor, "FontFile");
+        if (fontFile != null)
+        {
+            parseType1FontProgram(fontFile, fontInfo);
+        }
+    }
+
+    private static byte[] getFontStream(PdfDictionary descriptor, string key)
+    {
+        var obj = descriptor.Get(new PdfName(key));
+        if (obj is PdfIndirectReference indRef)
+            obj = indRef.GetRefersTo();
+        if (obj is PdfStream stream)
+        {
+            try { return stream.GetBytes(); }
+            catch { return null; }
+        }
+        return null;
+    }
+
+    private static void parseTrueTypeFontProgram(byte[] data, FontInfo fontInfo)
+    {
+        try
+        {
+            if (data == null || data.Length < 12) return;
+
+            int numTables = readUInt16BE(data, 4);
+            var tables = new Dictionary<string, (int offset, int length)>();
+
+            for (int i = 0; i < numTables; i++)
+            {
+                int recOff = 12 + i * 16;
+                if (recOff + 16 > data.Length) break;
+
+                var tag = Encoding.ASCII.GetString(data, recOff, 4);
+                int tblOff = (int)readUInt32BE(data, recOff + 8);
+                int tblLen = (int)readUInt32BE(data, recOff + 12);
+                tables[tag] = (tblOff, tblLen);
+            }
+
+            // maxp → numGlyphs → FontProgramCids
+            if (tables.TryGetValue("maxp", out var maxp) && maxp.offset + 6 <= data.Length)
+            {
+                int numGlyphs = readUInt16BE(data, maxp.offset + 4);
+                for (int gid = 0; gid < numGlyphs; gid++)
+                    fontInfo.FontProgramCids.Add(gid);
+            }
+
+            // hmtx + hhea → FontProgramWidths
+            if (tables.TryGetValue("hhea", out var hhea) && tables.TryGetValue("hmtx", out var hmtx)
+                && hhea.offset + 36 <= data.Length)
+            {
+                int numHMetrics = readUInt16BE(data, hhea.offset + 34);
+                for (int i = 0; i < numHMetrics; i++)
+                {
+                    int off = hmtx.offset + i * 4;
+                    if (off + 2 > data.Length) break;
+                    int advanceWidth = readUInt16BE(data, off);
+                    fontInfo.FontProgramWidths[i.ToString()] = advanceWidth;
+                }
+            }
+
+            // post → FontProgramGlyphNames
+            if (tables.TryGetValue("post", out var post))
+            {
+                parsePostTable(data, post.offset, post.length, fontInfo);
+            }
+
+            // cmap → CmapSubtables
+            if (tables.TryGetValue("cmap", out var cmap))
+            {
+                parseCmapSubtables(data, cmap.offset, cmap.length, fontInfo);
+            }
+        }
+        catch
+        {
+            // Ignore font program parsing errors
+        }
+    }
+
+    private static void parsePostTable(byte[] data, int offset, int length, FontInfo fontInfo)
+    {
+        if (offset + 4 > data.Length) return;
+
+        int format = (int)readUInt32BE(data, offset);
+
+        // Format 2.0: has glyph name table
+        if (format == 0x00020000)
+        {
+            if (offset + 34 > data.Length) return;
+            int numGlyphs = readUInt16BE(data, offset + 32);
+            int nameIndexOffset = offset + 34;
+
+            // Standard Mac glyph names (first 258)
+            var standardNames = getStandardMacGlyphNames();
+            var customNames = new List<string>();
+
+            // Read name indices
+            var nameIndices = new int[numGlyphs];
+            for (int i = 0; i < numGlyphs; i++)
+            {
+                int idxOff = nameIndexOffset + i * 2;
+                if (idxOff + 2 > data.Length) break;
+                nameIndices[i] = readUInt16BE(data, idxOff);
+            }
+
+            // Read custom names after the index array
+            int stringsOffset = nameIndexOffset + numGlyphs * 2;
+            int pos = stringsOffset;
+            while (pos < offset + length && pos < data.Length)
+            {
+                int strLen = data[pos];
+                pos++;
+                if (pos + strLen > data.Length) break;
+                customNames.Add(Encoding.ASCII.GetString(data, pos, strLen));
+                pos += strLen;
+            }
+
+            // Map indices to names
+            for (int i = 0; i < numGlyphs; i++)
+            {
+                int idx = nameIndices[i];
+                if (idx < 258 && idx < standardNames.Length)
+                    fontInfo.FontProgramGlyphNames.Add(standardNames[idx]);
+                else if (idx >= 258 && idx - 258 < customNames.Count)
+                    fontInfo.FontProgramGlyphNames.Add(customNames[idx - 258]);
+            }
+        }
+    }
+
+    private static void parseCmapSubtables(byte[] data, int offset, int length, FontInfo fontInfo)
+    {
+        if (offset + 4 > data.Length) return;
+        int numSubtables = readUInt16BE(data, offset + 2);
+
+        for (int i = 0; i < numSubtables; i++)
+        {
+            int recOff = offset + 4 + i * 8;
+            if (recOff + 8 > data.Length) break;
+
+            int platformId = readUInt16BE(data, recOff);
+            int encodingId = readUInt16BE(data, recOff + 2);
+            int subtableOffset = (int)readUInt32BE(data, recOff + 4);
+            int absOff = offset + subtableOffset;
+            int format = absOff + 2 <= data.Length ? readUInt16BE(data, absOff) : 0;
+
+            fontInfo.CmapSubtables.Add(new CmapSubtableData
+            {
+                PlatformId = platformId,
+                EncodingId = encodingId,
+                Format = format
+            });
+        }
+    }
+
+    private static void parseCffFontProgram(byte[] data, FontInfo fontInfo)
+    {
+        // Minimal CFF parsing — extract glyph count from Top DICT
+        try
+        {
+            if (data == null || data.Length < 4) return;
+            // CFF starts with header: major, minor, hdrSize, offSize
+            int hdrSize = data[2];
+            // After header comes the Name INDEX
+            // Skip Name INDEX to get to Top DICT INDEX
+            int pos = hdrSize;
+            pos = skipCffIndex(data, pos); // Name INDEX
+            if (pos < 0 || pos >= data.Length) return;
+            // Top DICT INDEX — we can count entries but can't easily parse all fields
+            // Just mark that the font program exists
+            fontInfo.FontProgramCids.Add(0); // .notdef is always present
+        }
+        catch
+        {
+            // Ignore CFF parsing errors
+        }
+    }
+
+    private static int skipCffIndex(byte[] data, int offset)
+    {
+        if (offset + 3 > data.Length) return -1;
+        int count = readUInt16BE(data, offset);
+        if (count == 0) return offset + 2;
+        int offSize = data[offset + 2];
+        if (offset + 3 + (count + 1) * offSize > data.Length) return -1;
+        // Last offset value tells us where data ends
+        int lastOff = readOffSize(data, offset + 3 + count * offSize, offSize);
+        return offset + 3 + (count + 1) * offSize + lastOff - 1;
+    }
+
+    private static int readOffSize(byte[] data, int offset, int size)
+    {
+        int val = 0;
+        for (int i = 0; i < size; i++)
+        {
+            if (offset + i >= data.Length) return 0;
+            val = (val << 8) | data[offset + i];
+        }
+        return val;
+    }
+
+    private static void parseType1FontProgram(byte[] data, FontInfo fontInfo)
+    {
+        // Parse Type1 font for /CharStrings glyph names
+        try
+        {
+            if (data == null || data.Length == 0) return;
+            var content = Encoding.Latin1.GetString(data);
+            var charStringsMatch = Regex.Match(content, @"/CharStrings\s+\d+\s+dict");
+            if (!charStringsMatch.Success) return;
+
+            int searchStart = charStringsMatch.Index + charStringsMatch.Length;
+            var glyphPattern = new Regex(@"/(\w+)\s+\d+\s+RD\s");
+            var matches = glyphPattern.Matches(content, searchStart);
+            foreach (Match m in matches)
+            {
+                var name = m.Groups[1].Value;
+                fontInfo.Type1GlyphNames.Add(name);
+                fontInfo.FontProgramGlyphNames.Add(name);
+            }
+        }
+        catch
+        {
+            // Ignore Type1 parsing errors
+        }
+    }
+
+    private static void detectUnmappableCharCodes(PdfDictionary fontDict, FontInfo fontInfo)
+    {
+        var subtype = fontDict.GetAsName(PdfName.Subtype)?.GetValue();
+
+        // For Type3 fonts without ToUnicode, check if glyph names are in AGL
+        if (subtype == "Type3" && !fontInfo.HasTounicode)
+        {
+            var aglNames = getAglGlyphNames();
+            var firstChar = fontDict.GetAsNumber(PdfName.FirstChar)?.IntValue() ?? 0;
+            var lastChar = fontDict.GetAsNumber(PdfName.LastChar)?.IntValue() ?? 0;
+            var encodingObj = fontDict.Get(PdfName.Encoding);
+
+            // Build char code → glyph name map from Differences
+            var codeToName = new Dictionary<int, string>();
+            if (encodingObj is PdfDictionary encDict)
+            {
+                var differences = encDict.GetAsArray(new PdfName("Differences"));
+                if (differences != null)
+                {
+                    int currentCode = 0;
+                    for (int i = 0; i < differences.Size(); i++)
+                    {
+                        var item = differences.Get(i);
+                        if (item is PdfNumber num)
+                            currentCode = num.IntValue();
+                        else if (item is PdfName name)
+                        {
+                            codeToName[currentCode] = name.GetValue();
+                            currentCode++;
+                        }
+                    }
+                }
+            }
+
+            for (int code = firstChar; code <= lastChar; code++)
+            {
+                if (codeToName.TryGetValue(code, out var glyphName))
+                {
+                    if (!aglNames.Contains(glyphName))
+                        fontInfo.UnmappableCharCodes.Add(code);
+                }
+                else
+                {
+                    // No mapping at all
+                    fontInfo.UnmappableCharCodes.Add(code);
+                }
+            }
+        }
+    }
+
+    private static int readUInt16BE(byte[] data, int offset)
+    {
+        return (data[offset] << 8) | data[offset + 1];
+    }
+
+    private static uint readUInt32BE(byte[] data, int offset)
+    {
+        return ((uint)data[offset] << 24) | ((uint)data[offset + 1] << 16)
+            | ((uint)data[offset + 2] << 8) | data[offset + 3];
+    }
+
+    private static string[] getStandardMacGlyphNames()
+    {
+        return new[]
+        {
+            ".notdef", ".null", "nonmarkingreturn", "space", "exclam", "quotedbl",
+            "numbersign", "dollar", "percent", "ampersand", "quotesingle", "parenleft",
+            "parenright", "asterisk", "plus", "comma", "hyphen", "period", "slash",
+            "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+            "nine", "colon", "semicolon", "less", "equal", "greater", "question",
+            "at", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L",
+            "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+            "bracketleft", "backslash", "bracketright", "asciicircum", "underscore",
+            "grave", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l",
+            "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
+            "braceleft", "bar", "braceright", "asciitilde", "Adieresis", "Aring",
+            "Ccedilla", "Eacute", "Ntilde", "Odieresis", "Udieresis", "aacute",
+            "agrave", "acircumflex", "adieresis", "atilde", "aring", "ccedilla",
+            "eacute", "egrave", "ecircumflex", "edieresis", "iacute", "igrave",
+            "icircumflex", "idieresis", "ntilde", "oacute", "ograve", "ocircumflex",
+            "odieresis", "otilde", "uacute", "ugrave", "ucircumflex", "udieresis",
+            "dagger", "degree", "cent", "sterling", "section", "bullet", "paragraph",
+            "germandbls", "registered", "copyright", "trademark", "acute", "dieresis",
+            "notequal", "AE", "Oslash", "infinity", "plusminus", "lessequal",
+            "greaterequal", "yen", "mu", "partialdiff", "summation", "product",
+            "pi", "integral", "ordfeminine", "ordmasculine", "Omega", "ae", "oslash",
+            "questiondown", "exclamdown", "logicalnot", "radical", "florin",
+            "approxequal", "Delta", "guillemotleft", "guillemotright", "ellipsis",
+            "nonbreakingspace", "Agrave", "Atilde", "Otilde", "OE", "oe", "endash",
+            "emdash", "quotedblleft", "quotedblright", "quoteleft", "quoteright",
+            "divide", "lozenge", "ydieresis", "Ydieresis", "fraction", "currency",
+            "guilsinglleft", "guilsinglright", "fi", "fl", "daggerdbl", "periodcentered",
+            "quotesinglbase", "quotedblbase", "perthousand", "Acircumflex",
+            "Ecircumflex", "Aacute", "Edieresis", "Egrave", "Iacute", "Icircumflex",
+            "Idieresis", "Igrave", "Oacute", "Ocircumflex", "apple", "Ograve",
+            "Uacute", "Ucircumflex", "Ugrave", "dotlessi", "circumflex", "tilde",
+            "macron", "breve", "dotaccent", "ring", "cedilla", "hungarumlaut",
+            "ogonek", "caron", "Lslash", "lslash", "Scaron", "scaron", "Zcaron",
+            "zcaron", "brokenbar", "Eth", "eth", "Yacute", "yacute", "Thorn",
+            "thorn", "minus", "multiply", "onesuperior", "twosuperior",
+            "threesuperior", "onehalf", "onequarter", "threequarters", "franc",
+            "Gbreve", "gbreve", "Idotaccent", "Scedilla", "scedilla", "Cacute",
+            "cacute", "Ccaron", "ccaron", "dcroat"
+        };
+    }
+
+    private static HashSet<string> getAglGlyphNames()
+    {
+        // Common AGL (Adobe Glyph List) names that map to Unicode
+        // This is a subset covering the most common glyph names
+        var names = getStandardMacGlyphNames();
+        var set = new HashSet<string>(names, StringComparer.Ordinal);
+        // Add standard Latin glyph names that map to Unicode
+        foreach (var c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+            set.Add(c.ToString());
+        return set;
     }
 
     private static List<int> readStructuredMcids(PdfDocument pdf, int pageNumber)

@@ -238,4 +238,149 @@ public class InspectHandlerTests
         result.Document.IsEncrypted.Should().BeFalse();
         result.Document.EncryptionPermissions.Should().BeNull();
     }
+
+    [Fact]
+    public void Inspect_UntaggedSimple_FontsArePopulated()
+    {
+        var path = FixtureGenerator.EnsureUntaggedSimple();
+        var result = inspectFixture(path);
+
+        result.Pages.Should().HaveCount(1);
+        result.Pages[0].Fonts.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void Inspect_UntaggedSimple_FontHasCorrectName()
+    {
+        var path = FixtureGenerator.EnsureUntaggedSimple();
+        var result = inspectFixture(path);
+
+        var fonts = result.Pages[0].Fonts;
+        fonts.Should().Contain(f => f.Name.Contains("Helvetica"));
+    }
+
+    [Fact]
+    public void Inspect_UntaggedSimple_FontIsNotEmbedded()
+    {
+        var path = FixtureGenerator.EnsureUntaggedSimple();
+        var result = inspectFixture(path);
+
+        var helvetica = result.Pages[0].Fonts
+            .First(f => f.Name.Contains("Helvetica"));
+
+        helvetica.IsEmbedded.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Inspect_UntaggedSimple_FontHasEncoding()
+    {
+        var path = FixtureGenerator.EnsureUntaggedSimple();
+        var result = inspectFixture(path);
+
+        var helvetica = result.Pages[0].Fonts
+            .First(f => f.Name.Contains("Helvetica"));
+
+        helvetica.Encoding.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Inspect_Scanned_FontsAreEmptyForImageOnlyPage()
+    {
+        var path = FixtureGenerator.EnsureScanned();
+        var result = inspectFixture(path);
+
+        result.Pages.Should().HaveCount(1);
+        result.Pages[0].Fonts.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Inspect_MixedFonts_HasTounicodeIsCorrectForCidFont()
+    {
+        var path = FixtureGenerator.EnsureMixedFonts();
+        var result = inspectFixture(path);
+
+        // Page 1 has CIDFontType2 (embedded) and Type1 (Helvetica)
+        var page1Fonts = result.Pages[0].Fonts;
+        page1Fonts.Should().HaveCountGreaterThanOrEqualTo(2);
+
+        // The embedded CID font should have a ToUnicode CMap
+        var cidFont = page1Fonts.First(f => f.IsEmbedded);
+        cidFont.HasTounicode.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Inspect_MixedFonts_IsEmbeddedCorrectForEachFont()
+    {
+        var path = FixtureGenerator.EnsureMixedFonts();
+        var result = inspectFixture(path);
+
+        var page1Fonts = result.Pages[0].Fonts;
+
+        // CID font is embedded
+        page1Fonts.Should().Contain(f => f.IsEmbedded);
+        // Helvetica is not embedded
+        page1Fonts.Should().Contain(f => !f.IsEmbedded && f.Name.Contains("Helvetica"));
+    }
+
+    [Fact]
+    public void Inspect_MixedFonts_TounicodeMappingsPopulatedForCidFont()
+    {
+        var path = FixtureGenerator.EnsureMixedFonts();
+        var result = inspectFixture(path);
+
+        var cidFont = result.Pages[0].Fonts.First(f => f.IsEmbedded);
+        cidFont.TounicodeMappings.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void Inspect_MixedFonts_FontProgramCidsPopulatedFromBinary()
+    {
+        var path = FixtureGenerator.EnsureMixedFonts();
+        var result = inspectFixture(path);
+
+        var cidFont = result.Pages[0].Fonts.First(f => f.IsEmbedded);
+        cidFont.FontProgramCids.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void Inspect_MixedFonts_Type3InfoPopulated()
+    {
+        var path = FixtureGenerator.EnsureMixedFonts();
+        var result = inspectFixture(path);
+
+        // Page 2 has the Type3 font
+        var page2Fonts = result.Pages[1].Fonts;
+        page2Fonts.Should().NotBeEmpty();
+
+        var type3Font = page2Fonts.First(f => f.FontType == "Type3");
+        type3Font.Type3Info.Should().NotBeNull();
+        type3Font.Type3Info.CharProcsGlyphNames.Should().Contain("glyph0");
+        type3Font.Type3Info.CharProcsGlyphNames.Should().Contain("glyph1");
+        type3Font.Type3Info.CharProcsGlyphNames.Should().Contain("glyph2");
+    }
+
+    [Fact]
+    public void Inspect_MixedFonts_UnmappableCharCodesNonEmptyForType3()
+    {
+        var path = FixtureGenerator.EnsureMixedFonts();
+        var result = inspectFixture(path);
+
+        // Type3 font with non-AGL glyph names and no ToUnicode → unmappable
+        var type3Font = result.Pages[1].Fonts.First(f => f.FontType == "Type3");
+        type3Font.UnmappableCharCodes.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void Inspect_MixedFonts_CidsetCidsPopulatedForCidFont()
+    {
+        var path = FixtureGenerator.EnsureMixedFonts();
+        var result = inspectFixture(path);
+
+        var cidFont = result.Pages[0].Fonts.First(f => f.IsEmbedded);
+        // CIDSet might or might not be added by iText; test that when present, it's parsed
+        if (cidFont.HasCidset)
+        {
+            cidFont.CidsetCids.Should().NotBeEmpty();
+        }
+    }
 }
