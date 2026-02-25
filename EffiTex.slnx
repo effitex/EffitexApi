@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/EffiTex.Core/EffiTex.Core.csproj" />
+    <Project Path="src/EffiTex.Engine/EffiTex.Engine.csproj" />
+    <Project Path="src/EffiTex.Functions/EffiTex.Functions.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/EffiTex.Core.Tests/EffiTex.Core.Tests.csproj" />
+    <Project Path="tests/EffiTex.Engine.Tests/EffiTex.Engine.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,56 @@
+{
+  "version": "1.0",
+  "fonts": [
+    {
+      "op": "write_cidset",
+      "font": "CIDFont+F1",
+      "page": 1,
+      "cids": [0, 1, 2, 3]
+    },
+    {
+      "op": "write_charset",
+      "font": "TimesNewRomanPSMT",
+      "page": 1,
+      "glyph_names": ["A", "B", "C", "space", "period"]
+    },
+    {
+      "op": "set_encoding",
+      "font": "ArialMT",
+      "page": 1,
+      "encoding": "WinAnsiEncoding"
+    },
+    {
+      "op": "set_differences",
+      "font": "ArialMT",
+      "page": 2,
+      "differences": {
+        "128": "Euro",
+        "130": "quotesinglbase"
+      }
+    },
+    {
+      "op": "write_tounicode",
+      "font": "Symbol",
+      "page": 1,
+      "mappings": {
+        "65": "A",
+        "66": "B",
+        "128": "\u20AC"
+      }
+    },
+    {
+      "op": "set_widths",
+      "font": "Helvetica-Bold",
+      "page": 1,
+      "widths": {
+        "42": 600.0,
+        "65": 722.0
+      }
+    },
+    {
+      "op": "add_font_descriptor",
+      "font": "TT1",
+      "page": 1
+    }
+  ]
+}

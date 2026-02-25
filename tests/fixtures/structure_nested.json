@@ -1,0 +1,67 @@
+{
+  "version": "1.0",
+  "structure": {
+    "strip_existing": false,
+    "root": "Document",
+    "children": [
+      {
+        "id": "sect-1",
+        "role": "Sect",
+        "language": "en-US",
+        "children": [
+          {
+            "id": "table-1",
+            "role": "Table",
+            "children": [
+              {
+                "role": "THead",
+                "children": [
+                  {
+                    "role": "TR",
+                    "children": [
+                      {
+                        "id": "th-0",
+                        "role": "TH",
+                        "element_id": "th-hdr-0",
+                        "scope": "Column"
+                      },
+                      {
+                        "id": "th-1",
+                        "role": "TH",
+                        "element_id": "th-hdr-1",
+                        "scope": "Column"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "role": "TBody",
+                "children": [
+                  {
+                    "role": "TR",
+                    "children": [
+                      {
+                        "id": "td-0",
+                        "role": "TD",
+                        "colspan": 2,
+                        "rowspan": 1,
+                        "attributes": [
+                          {
+                            "owner": "Table",
+                            "key": "Headers",
+                            "value": "th-hdr-0 th-hdr-1"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

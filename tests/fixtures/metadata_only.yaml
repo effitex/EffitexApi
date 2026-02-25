@@ -1,0 +1,9 @@
+version: "1.0"
+
+metadata:
+  language: "en-US"
+  title: "Simple Document"
+  display_doc_title: true
+  mark_info: true
+  pdfua_identifier: 1
+  tab_order: "structure"

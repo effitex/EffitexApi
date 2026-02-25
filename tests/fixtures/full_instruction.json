@@ -1,0 +1,151 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "language": "en-US",
+    "title": "Q4 Planning Meeting Agenda",
+    "display_doc_title": true,
+    "mark_info": true,
+    "pdfua_identifier": 1,
+    "tab_order": "structure"
+  },
+  "structure": {
+    "strip_existing": true,
+    "root": "Document",
+    "children": [
+      {
+        "id": "heading",
+        "role": "H1",
+        "bbox": { "x": 72, "y": 700, "width": 468, "height": 24 }
+      },
+      {
+        "id": "para-1",
+        "role": "P",
+        "language": "es-US"
+      },
+      {
+        "id": "fig-1",
+        "role": "Figure",
+        "alt_text": "Company Logo",
+        "bbox": { "x": 100, "y": 500, "width": 200, "height": 150 }
+      },
+      {
+        "id": "list-1",
+        "role": "L",
+        "children": [
+          {
+            "id": "li-1",
+            "role": "LI",
+            "children": [
+              {
+                "id": "lbl-1",
+                "role": "Lbl",
+                "actual_text": "1."
+              },
+              {
+                "id": "lbody-1",
+                "role": "LBody"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "table-1",
+        "role": "Table",
+        "children": [
+          {
+            "role": "TR",
+            "children": [
+              {
+                "id": "th-0-0",
+                "role": "TH",
+                "element_id": "th-t1-0-0",
+                "scope": "Column"
+              },
+              {
+                "id": "td-0-1",
+                "role": "TD",
+                "colspan": 2,
+                "rowspan": 1,
+                "attributes": [
+                  {
+                    "owner": "Table",
+                    "key": "Headers",
+                    "value": "th-t1-0-0"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "content_tagging": [
+    {
+      "node": "heading",
+      "page": 1,
+      "bbox": { "x": 72, "y": 700, "width": 468, "height": 24 }
+    },
+    {
+      "node": "lbody-1",
+      "page": 1,
+      "bbox": { "x": 72, "y": 600, "width": 468, "height": 14 }
+    }
+  ],
+  "artifacts": [
+    {
+      "page": 1,
+      "bbox": { "x": 0, "y": 750, "width": 612, "height": 42 },
+      "type": "layout"
+    }
+  ],
+  "annotations": [
+    {
+      "op": "set_contents",
+      "page": 1,
+      "index": 0,
+      "value": "https://example.com"
+    },
+    {
+      "op": "create_widget",
+      "page": 2,
+      "rect": { "x": 100, "y": 300, "width": 200, "height": 20 },
+      "field_name": "last_name",
+      "field_type": "Tx",
+      "tu": "Last Name"
+    }
+  ],
+  "bookmarks": {
+    "generate_from_headings": true
+  },
+  "fonts": [
+    {
+      "op": "write_cidset",
+      "font": "CIDFont+F1",
+      "page": 1,
+      "cids": [0, 1, 2, 3, 45, 67]
+    },
+    {
+      "op": "write_tounicode",
+      "font": "Symbol",
+      "page": 1,
+      "mappings": {
+        "65": "A",
+        "66": "B"
+      }
+    }
+  ],
+  "ocr": [
+    {
+      "page": 1,
+      "words": [
+        {
+          "text": "MEETING",
+          "bbox": { "x": 72, "y": 720, "width": 80, "height": 14 },
+          "confidence": 0.98
+        }
+      ]
+    }
+  ]
+}
