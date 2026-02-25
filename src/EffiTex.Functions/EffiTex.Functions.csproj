@@ -9,6 +9,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="EffiTex.Functions.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\EffiTex.Core\EffiTex.Core.csproj" />
     <ProjectReference Include="..\EffiTex.Engine\EffiTex.Engine.csproj" />
   </ItemGroup>
@@ -23,6 +27,7 @@
     <PackageReference Include="Azure.Storage.Blobs" Version="12.*" />
     <PackageReference Include="Azure.Data.Tables" Version="12.*" />
     <PackageReference Include="Azure.Storage.Queues" Version="12.*" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="9.*" />
   </ItemGroup>
 
 </Project>

@@ -1505,4 +1505,16 @@ public class InspectHandler
             Intent = intent
         };
     }
+
+    public byte[] GetPageImage(Stream pdfStream, int page, int index)
+    {
+        // Stub — returns null until fully implemented
+        return null;
+    }
+
+    public FigureInfoResponse GetFigureInfo(Stream pdfStream, int page, int mcid)
+    {
+        // Stub — returns null until fully implemented
+        return null;
+    }
 }

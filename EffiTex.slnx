@@ -7,5 +7,6 @@
   <Folder Name="/tests/">
     <Project Path="tests/EffiTex.Core.Tests/EffiTex.Core.Tests.csproj" />
     <Project Path="tests/EffiTex.Engine.Tests/EffiTex.Engine.Tests.csproj" />
+    <Project Path="tests/EffiTex.Functions.Tests/EffiTex.Functions.Tests.csproj" />
   </Folder>
 </Solution>
