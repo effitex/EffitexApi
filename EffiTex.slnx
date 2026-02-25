@@ -3,10 +3,12 @@
     <Project Path="src/EffiTex.Core/EffiTex.Core.csproj" />
     <Project Path="src/EffiTex.Engine/EffiTex.Engine.csproj" />
     <Project Path="src/EffiTex.Functions/EffiTex.Functions.csproj" />
+    <Project Path="src/EffiTex.Cli/EffiTex.Cli.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/EffiTex.Core.Tests/EffiTex.Core.Tests.csproj" />
     <Project Path="tests/EffiTex.Engine.Tests/EffiTex.Engine.Tests.csproj" />
     <Project Path="tests/EffiTex.Functions.Tests/EffiTex.Functions.Tests.csproj" />
+    <Project Path="tests/EffiTex.Cli.Tests/EffiTex.Cli.Tests.csproj" />
   </Folder>
 </Solution>
