@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using EffiTex.Engine;
 using EffiTex.Engine.Models.Inspect;
 using FluentAssertions;
@@ -333,16 +334,6 @@ public class InspectHandlerTests
     }
 
     [Fact]
-    public void Inspect_MixedFonts_FontProgramCidsPopulatedFromBinary()
-    {
-        var path = FixtureGenerator.EnsureMixedFonts();
-        var result = inspectFixture(path);
-
-        var cidFont = result.Pages[0].Fonts.First(f => f.IsEmbedded);
-        cidFont.FontProgramCids.Should().NotBeEmpty();
-    }
-
-    [Fact]
     public void Inspect_MixedFonts_Type3InfoPopulated()
     {
         var path = FixtureGenerator.EnsureMixedFonts();
@@ -371,16 +362,91 @@ public class InspectHandlerTests
     }
 
     [Fact]
-    public void Inspect_MixedFonts_CidsetCidsPopulatedForCidFont()
+    public void Inspect_EmbeddedFont_FontProgramDataIsValidBase64GzippedBytes()
     {
         var path = FixtureGenerator.EnsureMixedFonts();
         var result = inspectFixture(path);
 
-        var cidFont = result.Pages[0].Fonts.First(f => f.IsEmbedded);
-        // CIDSet might or might not be added by iText; test that when present, it's parsed
-        if (cidFont.HasCidset)
-        {
-            cidFont.CidsetCids.Should().NotBeEmpty();
-        }
+        var embeddedFont = result.Pages[0].Fonts.First(f => f.IsEmbedded);
+        var prop = typeof(FontInfo).GetProperty("FontProgramData");
+        prop.Should().NotBeNull("FontInfo must have a FontProgramData property");
+
+        var value = prop.GetValue(embeddedFont) as string;
+        value.Should().NotBeNullOrEmpty();
+
+        var compressedBytes = Convert.FromBase64String(value);
+        using var ms = new MemoryStream(compressedBytes);
+        using var gzip = new GZipStream(ms, CompressionMode.Decompress);
+        using var output = new MemoryStream();
+        gzip.CopyTo(output);
+        output.Length.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public void Inspect_NonEmbeddedFont_FontProgramDataIsNull()
+    {
+        var path = FixtureGenerator.EnsureMixedFonts();
+        var result = inspectFixture(path);
+
+        var nonEmbedded = result.Pages[0].Fonts.First(f => !f.IsEmbedded);
+        var prop = typeof(FontInfo).GetProperty("FontProgramData");
+        prop.Should().NotBeNull("FontInfo must have a FontProgramData property");
+
+        var value = prop.GetValue(nonEmbedded);
+        value.Should().BeNull();
+    }
+
+    [Fact]
+    public void Inspect_MultipleEmbeddedFonts_EachHasDistinctFontProgramData()
+    {
+        var path = FixtureGenerator.EnsureMultipleEmbeddedFonts();
+        var result = inspectFixture(path);
+
+        var embeddedFonts = result.Pages[0].Fonts.Where(f => f.IsEmbedded).ToList();
+        embeddedFonts.Should().HaveCountGreaterThanOrEqualTo(2);
+
+        var prop = typeof(FontInfo).GetProperty("FontProgramData");
+        prop.Should().NotBeNull("FontInfo must have a FontProgramData property");
+
+        var values = embeddedFonts.Select(f => prop.GetValue(f) as string).ToList();
+        values.Should().AllSatisfy(v => v.Should().NotBeNullOrEmpty());
+        values.Distinct().Should().HaveCountGreaterThan(1,
+            "different embedded fonts must have different font program bytes");
+    }
+
+    [Fact]
+    public void FontInfo_DoesNotHave_FontProgramCids()
+    {
+        typeof(FontInfo).GetProperty("FontProgramCids").Should().BeNull();
+    }
+
+    [Fact]
+    public void FontInfo_DoesNotHave_FontProgramWidths()
+    {
+        typeof(FontInfo).GetProperty("FontProgramWidths").Should().BeNull();
+    }
+
+    [Fact]
+    public void FontInfo_DoesNotHave_DictionaryWidths()
+    {
+        typeof(FontInfo).GetProperty("DictionaryWidths").Should().BeNull();
+    }
+
+    [Fact]
+    public void FontInfo_DoesNotHave_CharsetGlyphNames()
+    {
+        typeof(FontInfo).GetProperty("CharsetGlyphNames").Should().BeNull();
+    }
+
+    [Fact]
+    public void FontInfo_DoesNotHave_FontProgramGlyphNames()
+    {
+        typeof(FontInfo).GetProperty("FontProgramGlyphNames").Should().BeNull();
+    }
+
+    [Fact]
+    public void FontInfo_DoesNotHave_CidsetCids()
+    {
+        typeof(FontInfo).GetProperty("CidsetCids").Should().BeNull();
     }
 }

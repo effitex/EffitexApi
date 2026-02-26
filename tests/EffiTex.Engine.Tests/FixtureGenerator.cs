@@ -268,6 +268,56 @@ public static class FixtureGenerator
         pageDict.Put(PdfName.Contents, contentStream);
     }
 
+    public static string EnsureMultipleEmbeddedFonts()
+    {
+        var path = GetFixturePath("multiple_embedded_fonts.pdf");
+        if (File.Exists(path)) return path;
+
+        using var writer = new PdfWriter(path);
+        using var pdf = new PdfDocument(writer);
+
+        // Find two different embedded TrueType fonts on the system
+        var fontsDir = Environment.GetFolderPath(Environment.SpecialFolder.Fonts);
+        var candidatePairs = new[]
+        {
+            ("arial.ttf", "times.ttf"),
+            ("arial.ttf", "verdana.ttf"),
+            ("arial.ttf", "calibri.ttf"),
+            ("segoeui.ttf", "verdana.ttf"),
+        };
+
+        string font1Path = null;
+        string font2Path = null;
+        foreach (var (a, b) in candidatePairs)
+        {
+            var p1 = System.IO.Path.Combine(fontsDir, a);
+            var p2 = System.IO.Path.Combine(fontsDir, b);
+            if (File.Exists(p1) && File.Exists(p2))
+            {
+                font1Path = p1;
+                font2Path = p2;
+                break;
+            }
+        }
+
+        if (font1Path == null || font2Path == null)
+            throw new InvalidOperationException("Cannot find two distinct TrueType fonts for the test fixture.");
+
+        var page = pdf.AddNewPage(PageSize.LETTER);
+        var canvas = new PdfCanvas(page);
+
+        var pdfFont1 = PdfFontFactory.CreateFont(font1Path, PdfEncodings.IDENTITY_H,
+            PdfFontFactory.EmbeddingStrategy.FORCE_EMBEDDED);
+        canvas.BeginText().SetFontAndSize(pdfFont1, 14).MoveText(72, 700).ShowText("Font One").EndText();
+
+        var pdfFont2 = PdfFontFactory.CreateFont(font2Path, PdfEncodings.IDENTITY_H,
+            PdfFontFactory.EmbeddingStrategy.FORCE_EMBEDDED);
+        canvas.BeginText().SetFontAndSize(pdfFont2, 14).MoveText(72, 660).ShowText("Font Two").EndText();
+
+        pdf.Close();
+        return path;
+    }
+
     public static string CreateTempPdf()
     {
         var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"effitex_test_{Guid.NewGuid():N}.pdf");

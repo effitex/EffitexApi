@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -433,7 +434,6 @@ public class InspectHandler
         var hasCidset = fontDescriptor?.Get(new PdfName("CIDSet")) != null;
         var encoding = readFontEncoding(fontDict);
         var encodingDetail = readEncodingDetail(fontDict);
-        var dictionaryWidths = readDictionaryWidths(fontDict, subtype);
 
         var fontInfo = new FontInfo
         {
@@ -449,13 +449,7 @@ public class InspectHandler
             HasCidset = hasCidset,
             HasFontDescriptor = hasFontDescriptor,
             EncodingDetail = encodingDetail,
-            DictionaryWidths = dictionaryWidths,
             TounicodeMappings = hasTounicode ? parseTounicode(fontDict) : new Dictionary<string, string>(),
-            CharsetGlyphNames = hasCharset ? parseCharset(fontDescriptor) : new List<string>(),
-            CidsetCids = hasCidset ? parseCidset(fontDescriptor) : new List<int>(),
-            FontProgramGlyphNames = new List<string>(),
-            FontProgramCids = new List<int>(),
-            FontProgramWidths = new Dictionary<string, float>(),
             UnmappableCharCodes = new List<int>(),
             CmapSubtables = new List<CmapSubtableData>(),
             Type1GlyphNames = new List<string>()
@@ -546,92 +540,6 @@ public class InspectHandler
         }
 
         return null;
-    }
-
-    private static Dictionary<string, float> readDictionaryWidths(PdfDictionary fontDict, string subtype)
-    {
-        var widths = new Dictionary<string, float>();
-
-        if (subtype == "Type0")
-        {
-            var descendantFonts = fontDict.GetAsArray(new PdfName("DescendantFonts"));
-            if (descendantFonts != null && descendantFonts.Size() > 0)
-            {
-                var cidFont = descendantFonts.GetAsDictionary(0);
-                if (cidFont != null)
-                {
-                    readCidWidths(cidFont, widths);
-                }
-            }
-            return widths;
-        }
-
-        var widthsArr = fontDict.GetAsArray(PdfName.Widths);
-        if (widthsArr == null) return widths;
-
-        var firstChar = fontDict.GetAsNumber(PdfName.FirstChar);
-        if (firstChar == null) return widths;
-
-        int first = firstChar.IntValue();
-        for (int i = 0; i < widthsArr.Size(); i++)
-        {
-            var w = widthsArr.GetAsNumber(i);
-            if (w != null)
-            {
-                widths[(first + i).ToString()] = w.FloatValue();
-            }
-        }
-
-        return widths;
-    }
-
-    private static void readCidWidths(PdfDictionary cidFont, Dictionary<string, float> widths)
-    {
-        var wArr = cidFont.GetAsArray(new PdfName("W"));
-        if (wArr == null) return;
-
-        int i = 0;
-        while (i < wArr.Size())
-        {
-            var cidStart = wArr.GetAsNumber(i);
-            if (cidStart == null) break;
-            int startCid = cidStart.IntValue();
-            i++;
-
-            if (i >= wArr.Size()) break;
-
-            var next = wArr.Get(i);
-            if (next is PdfArray widthList)
-            {
-                for (int j = 0; j < widthList.Size(); j++)
-                {
-                    var w = widthList.GetAsNumber(j);
-                    if (w != null)
-                    {
-                        widths[(startCid + j).ToString()] = w.FloatValue();
-                    }
-                }
-                i++;
-            }
-            else if (next is PdfNumber cidEnd)
-            {
-                i++;
-                if (i >= wArr.Size()) break;
-                var widthVal = wArr.GetAsNumber(i);
-                if (widthVal != null)
-                {
-                    for (int cid = startCid; cid <= cidEnd.IntValue(); cid++)
-                    {
-                        widths[cid.ToString()] = widthVal.FloatValue();
-                    }
-                }
-                i++;
-            }
-            else
-            {
-                break;
-            }
-        }
     }
 
     private static Dictionary<string, string> parseTounicode(PdfDictionary fontDict)
@@ -735,79 +643,6 @@ public class InspectHandler
         return sb.ToString();
     }
 
-    private static List<string> parseCharset(PdfDictionary fontDescriptor)
-    {
-        var glyphNames = new List<string>();
-        if (fontDescriptor == null) return glyphNames;
-
-        var charsetObj = fontDescriptor.Get(new PdfName("CharSet"));
-        if (charsetObj == null) return glyphNames;
-
-        string charsetStr = null;
-        if (charsetObj is PdfString pdfStr)
-            charsetStr = pdfStr.GetValue();
-        else if (charsetObj is PdfName pdfName)
-            charsetStr = pdfName.GetValue();
-
-        if (string.IsNullOrEmpty(charsetStr)) return glyphNames;
-
-        var names = charsetStr.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        foreach (var n in names)
-        {
-            var trimmed = n.Trim();
-            if (!string.IsNullOrEmpty(trimmed))
-                glyphNames.Add(trimmed);
-        }
-
-        return glyphNames;
-    }
-
-    private static List<int> parseCidset(PdfDictionary fontDescriptor)
-    {
-        var cids = new List<int>();
-        if (fontDescriptor == null) return cids;
-
-        var cidsetObj = fontDescriptor.Get(new PdfName("CIDSet"));
-        if (cidsetObj == null) return cids;
-
-        PdfStream cidsetStream = null;
-        if (cidsetObj is PdfStream stream)
-        {
-            cidsetStream = stream;
-        }
-        else if (cidsetObj is PdfIndirectReference indRef)
-        {
-            var refersTo = indRef.GetRefersTo();
-            if (refersTo is PdfStream refStream)
-                cidsetStream = refStream;
-        }
-
-        if (cidsetStream == null) return cids;
-
-        try
-        {
-            var bytes = cidsetStream.GetBytes();
-            if (bytes == null) return cids;
-
-            for (int byteIdx = 0; byteIdx < bytes.Length; byteIdx++)
-            {
-                for (int bit = 7; bit >= 0; bit--)
-                {
-                    if ((bytes[byteIdx] & (1 << bit)) != 0)
-                    {
-                        cids.Add(byteIdx * 8 + (7 - bit));
-                    }
-                }
-            }
-        }
-        catch
-        {
-            // Ignore parse errors
-        }
-
-        return cids;
-    }
-
     private static void readType0FontInfo(PdfDictionary fontDict, FontInfo fontInfo)
     {
         var descendantFonts = fontDict.GetAsArray(new PdfName("DescendantFonts"));
@@ -851,10 +686,6 @@ public class InspectHandler
             fontInfo.IsSymbolic = checkIsSymbolic(cidFontDescriptor);
             fontInfo.HasCharset = cidFontDescriptor.Get(new PdfName("CharSet")) != null;
             fontInfo.HasCidset = cidFontDescriptor.Get(new PdfName("CIDSet")) != null;
-            if (fontInfo.HasCidset)
-                fontInfo.CidsetCids = parseCidset(cidFontDescriptor);
-            if (fontInfo.HasCharset)
-                fontInfo.CharsetGlyphNames = parseCharset(cidFontDescriptor);
         }
     }
 
@@ -903,12 +734,7 @@ public class InspectHandler
 
     private static void parseFontProgramData(PdfDictionary fontDict, PdfDictionary fontDescriptor, FontInfo fontInfo)
     {
-        // For Type0 fonts, check the descendant CID font's descriptor
         var descriptor = fontDescriptor;
-        if (descriptor == null && fontInfo.FontType == "CIDFontType2")
-        {
-            // Already extracted by readType0FontInfo
-        }
         if (fontDict.GetAsName(PdfName.Subtype)?.GetValue() == "Type0")
         {
             var descendantFonts = fontDict.GetAsArray(new PdfName("DescendantFonts"));
@@ -922,28 +748,37 @@ public class InspectHandler
 
         if (descriptor == null) return;
 
-        // Try FontFile2 (TrueType)
         var fontFile2 = getFontStream(descriptor, "FontFile2");
         if (fontFile2 != null)
         {
+            fontInfo.FontProgramData = compressToBase64(fontFile2);
             parseTrueTypeFontProgram(fontFile2, fontInfo);
             return;
         }
 
-        // Try FontFile3 (CFF / OpenType CFF)
         var fontFile3 = getFontStream(descriptor, "FontFile3");
         if (fontFile3 != null)
         {
-            parseCffFontProgram(fontFile3, fontInfo);
+            fontInfo.FontProgramData = compressToBase64(fontFile3);
             return;
         }
 
-        // Try FontFile (Type1)
         var fontFile = getFontStream(descriptor, "FontFile");
         if (fontFile != null)
         {
+            fontInfo.FontProgramData = compressToBase64(fontFile);
             parseType1FontProgram(fontFile, fontInfo);
         }
+    }
+
+    private static string compressToBase64(byte[] data)
+    {
+        using var output = new MemoryStream();
+        using (var gzip = new GZipStream(output, CompressionLevel.Optimal))
+        {
+            gzip.Write(data, 0, data.Length);
+        }
+        return Convert.ToBase64String(output.ToArray());
     }
 
     private static byte[] getFontStream(PdfDictionary descriptor, string key)
@@ -979,34 +814,6 @@ public class InspectHandler
                 tables[tag] = (tblOff, tblLen);
             }
 
-            // maxp → numGlyphs → FontProgramCids
-            if (tables.TryGetValue("maxp", out var maxp) && maxp.offset + 6 <= data.Length)
-            {
-                int numGlyphs = readUInt16BE(data, maxp.offset + 4);
-                for (int gid = 0; gid < numGlyphs; gid++)
-                    fontInfo.FontProgramCids.Add(gid);
-            }
-
-            // hmtx + hhea → FontProgramWidths
-            if (tables.TryGetValue("hhea", out var hhea) && tables.TryGetValue("hmtx", out var hmtx)
-                && hhea.offset + 36 <= data.Length)
-            {
-                int numHMetrics = readUInt16BE(data, hhea.offset + 34);
-                for (int i = 0; i < numHMetrics; i++)
-                {
-                    int off = hmtx.offset + i * 4;
-                    if (off + 2 > data.Length) break;
-                    int advanceWidth = readUInt16BE(data, off);
-                    fontInfo.FontProgramWidths[i.ToString()] = advanceWidth;
-                }
-            }
-
-            // post → FontProgramGlyphNames
-            if (tables.TryGetValue("post", out var post))
-            {
-                parsePostTable(data, post.offset, post.length, fontInfo);
-            }
-
             // cmap → CmapSubtables
             if (tables.TryGetValue("cmap", out var cmap))
             {
@@ -1016,56 +823,6 @@ public class InspectHandler
         catch
         {
             // Ignore font program parsing errors
-        }
-    }
-
-    private static void parsePostTable(byte[] data, int offset, int length, FontInfo fontInfo)
-    {
-        if (offset + 4 > data.Length) return;
-
-        int format = (int)readUInt32BE(data, offset);
-
-        // Format 2.0: has glyph name table
-        if (format == 0x00020000)
-        {
-            if (offset + 34 > data.Length) return;
-            int numGlyphs = readUInt16BE(data, offset + 32);
-            int nameIndexOffset = offset + 34;
-
-            // Standard Mac glyph names (first 258)
-            var standardNames = getStandardMacGlyphNames();
-            var customNames = new List<string>();
-
-            // Read name indices
-            var nameIndices = new int[numGlyphs];
-            for (int i = 0; i < numGlyphs; i++)
-            {
-                int idxOff = nameIndexOffset + i * 2;
-                if (idxOff + 2 > data.Length) break;
-                nameIndices[i] = readUInt16BE(data, idxOff);
-            }
-
-            // Read custom names after the index array
-            int stringsOffset = nameIndexOffset + numGlyphs * 2;
-            int pos = stringsOffset;
-            while (pos < offset + length && pos < data.Length)
-            {
-                int strLen = data[pos];
-                pos++;
-                if (pos + strLen > data.Length) break;
-                customNames.Add(Encoding.ASCII.GetString(data, pos, strLen));
-                pos += strLen;
-            }
-
-            // Map indices to names
-            for (int i = 0; i < numGlyphs; i++)
-            {
-                int idx = nameIndices[i];
-                if (idx < 258 && idx < standardNames.Length)
-                    fontInfo.FontProgramGlyphNames.Add(standardNames[idx]);
-                else if (idx >= 258 && idx - 258 < customNames.Count)
-                    fontInfo.FontProgramGlyphNames.Add(customNames[idx - 258]);
-            }
         }
     }
 
@@ -1094,52 +851,6 @@ public class InspectHandler
         }
     }
 
-    private static void parseCffFontProgram(byte[] data, FontInfo fontInfo)
-    {
-        // Minimal CFF parsing — extract glyph count from Top DICT
-        try
-        {
-            if (data == null || data.Length < 4) return;
-            // CFF starts with header: major, minor, hdrSize, offSize
-            int hdrSize = data[2];
-            // After header comes the Name INDEX
-            // Skip Name INDEX to get to Top DICT INDEX
-            int pos = hdrSize;
-            pos = skipCffIndex(data, pos); // Name INDEX
-            if (pos < 0 || pos >= data.Length) return;
-            // Top DICT INDEX — we can count entries but can't easily parse all fields
-            // Just mark that the font program exists
-            fontInfo.FontProgramCids.Add(0); // .notdef is always present
-        }
-        catch
-        {
-            // Ignore CFF parsing errors
-        }
-    }
-
-    private static int skipCffIndex(byte[] data, int offset)
-    {
-        if (offset + 3 > data.Length) return -1;
-        int count = readUInt16BE(data, offset);
-        if (count == 0) return offset + 2;
-        int offSize = data[offset + 2];
-        if (offset + 3 + (count + 1) * offSize > data.Length) return -1;
-        // Last offset value tells us where data ends
-        int lastOff = readOffSize(data, offset + 3 + count * offSize, offSize);
-        return offset + 3 + (count + 1) * offSize + lastOff - 1;
-    }
-
-    private static int readOffSize(byte[] data, int offset, int size)
-    {
-        int val = 0;
-        for (int i = 0; i < size; i++)
-        {
-            if (offset + i >= data.Length) return 0;
-            val = (val << 8) | data[offset + i];
-        }
-        return val;
-    }
-
     private static void parseType1FontProgram(byte[] data, FontInfo fontInfo)
     {
         // Parse Type1 font for /CharStrings glyph names
@@ -1155,9 +866,7 @@ public class InspectHandler
             var matches = glyphPattern.Matches(content, searchStart);
             foreach (Match m in matches)
             {
-                var name = m.Groups[1].Value;
-                fontInfo.Type1GlyphNames.Add(name);
-                fontInfo.FontProgramGlyphNames.Add(name);
+                fontInfo.Type1GlyphNames.Add(m.Groups[1].Value);
             }
         }
         catch

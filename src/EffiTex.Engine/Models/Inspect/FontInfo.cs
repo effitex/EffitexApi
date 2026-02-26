@@ -19,15 +19,10 @@ public class FontInfo
     public EncodingDetailData EncodingDetail { get; set; }
     public List<CmapSubtableData> CmapSubtables { get; set; }
     public Dictionary<string, string> TounicodeMappings { get; set; }
-    public List<string> CharsetGlyphNames { get; set; }
-    public List<string> FontProgramGlyphNames { get; set; }
-    public List<int> CidsetCids { get; set; }
-    public List<int> FontProgramCids { get; set; }
-    public Dictionary<string, float> DictionaryWidths { get; set; }
-    public Dictionary<string, float> FontProgramWidths { get; set; }
     public List<int> UnmappableCharCodes { get; set; }
     public Type3FontInfoData Type3Info { get; set; }
     public List<string> Type1GlyphNames { get; set; }
+    public string FontProgramData { get; set; }
 }
 
 public class CidSystemInfoData
