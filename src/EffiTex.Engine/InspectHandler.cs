@@ -48,7 +48,6 @@ public class InspectHandler
             return ms.ToArray();
 
         using var copy = new MemoryStream();
-        stream.Position = 0;
         stream.CopyTo(copy);
         return copy.ToArray();
     }
