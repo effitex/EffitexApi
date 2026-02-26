@@ -11,133 +11,234 @@ namespace EffiTex.Api.Tests.Storage;
 public class BlobStorageServiceTests
 {
     private readonly Mock<BlobServiceClient> _blobServiceClient;
-    private readonly Mock<BlobContainerClient> _containerClient;
-    private readonly Mock<BlobClient> _blobClient;
+    private readonly Mock<BlobContainerClient> _uploadClient;
+    private readonly Mock<BlobContainerClient> _inspectClient;
+    private readonly Mock<BlobContainerClient> _executeClient;
+    private readonly Mock<BlobClient> _uploadBlobClient;
+    private readonly Mock<BlobClient> _inspectBlobClient;
+    private readonly Mock<BlobClient> _executeBlobClient;
     private readonly IBlobStorageService _sut;
 
     public BlobStorageServiceTests()
     {
         _blobServiceClient = new Mock<BlobServiceClient>();
-        _containerClient = new Mock<BlobContainerClient>();
-        _blobClient = new Mock<BlobClient>();
+        _uploadClient = new Mock<BlobContainerClient>();
+        _inspectClient = new Mock<BlobContainerClient>();
+        _executeClient = new Mock<BlobContainerClient>();
+        _uploadBlobClient = new Mock<BlobClient>();
+        _inspectBlobClient = new Mock<BlobClient>();
+        _executeBlobClient = new Mock<BlobClient>();
 
-        _blobServiceClient
-            .Setup(c => c.GetBlobContainerClient(It.IsAny<string>()))
-            .Returns(_containerClient.Object);
+        _blobServiceClient.Setup(c => c.GetBlobContainerClient("effitex-upload")).Returns(_uploadClient.Object);
+        _blobServiceClient.Setup(c => c.GetBlobContainerClient("effitex-inspect")).Returns(_inspectClient.Object);
+        _blobServiceClient.Setup(c => c.GetBlobContainerClient("effitex-execute")).Returns(_executeClient.Object);
 
-        _containerClient
-            .Setup(c => c.GetBlobClient(It.IsAny<string>()))
-            .Returns(_blobClient.Object);
+        _uploadClient.Setup(c => c.GetBlobClient(It.IsAny<string>())).Returns(_uploadBlobClient.Object);
+        _inspectClient.Setup(c => c.GetBlobClient(It.IsAny<string>())).Returns(_inspectBlobClient.Object);
+        _executeClient.Setup(c => c.GetBlobClient(It.IsAny<string>())).Returns(_executeBlobClient.Object);
 
-        _containerClient
-            .Setup(c => c.CreateIfNotExistsAsync(It.IsAny<PublicAccessType>(), It.IsAny<IDictionary<string, string>>(), It.IsAny<BlobContainerEncryptionScopeOptions>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Response<BlobContainerInfo>)null);
-
-        _sut = new BlobStorageService(_blobServiceClient.Object, "effitex");
+        _sut = new BlobStorageService(_blobServiceClient.Object, "effitex-upload", "effitex-inspect", "effitex-execute");
     }
 
+    // --- Container routing tests ---
+
     [Fact]
-    public async Task UploadAsync_CallsUploadOnCorrectBlobClient()
+    public async Task UploadSourceAsync_UsesUploadContainer()
     {
-        var path = "source/test.pdf";
+        var documentId = Guid.NewGuid().ToString();
         var content = new MemoryStream(new byte[] { 1, 2, 3 });
 
-        _blobClient
+        _uploadBlobClient
             .Setup(b => b.UploadAsync(It.IsAny<Stream>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Mock.Of<Response<BlobContentInfo>>());
 
-        await _sut.UploadAsync(path, content, "application/pdf");
+        await _sut.UploadSourceAsync(documentId, content);
 
-        _containerClient.Verify(c => c.GetBlobClient(path), Times.Once);
-        _blobClient.Verify(b => b.UploadAsync(content, true, It.IsAny<CancellationToken>()), Times.Once);
+        _uploadClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Once);
+        _inspectClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
+        _executeClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
-    public async Task DownloadAsync_ReturnsStreamFromBlobClient()
+    public async Task DownloadSourceAsync_UsesUploadContainer()
     {
-        var path = "results/test.json";
-        var expectedStream = new MemoryStream(new byte[] { 10, 20, 30 });
-
-        var downloadResult = Mock.Of<BlobDownloadInfo>(d => d.Content == expectedStream);
-        _blobClient
+        var documentId = Guid.NewGuid().ToString();
+        var stream = new MemoryStream(new byte[] { 1, 2, 3 });
+        var downloadResult = Mock.Of<BlobDownloadInfo>(d => d.Content == stream);
+        _uploadBlobClient
             .Setup(b => b.DownloadAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(Response.FromValue(downloadResult, Mock.Of<Response>()));
 
-        var result = await _sut.DownloadAsync(path);
+        await _sut.DownloadSourceAsync(documentId);
 
-        _containerClient.Verify(c => c.GetBlobClient(path), Times.Once);
-        result.Should().BeSameAs(expectedStream);
+        _uploadClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Once);
+        _inspectClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
+        _executeClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
-    public async Task DeleteAsync_CallsDeleteIfExistsOnCorrectBlobClient()
+    public async Task UploadInspectResultAsync_UsesInspectContainer()
     {
-        var path = "source/delete-me.pdf";
+        var jobId = Guid.NewGuid().ToString();
+        var content = new MemoryStream(new byte[] { 1, 2, 3 });
 
-        _blobClient
+        _inspectBlobClient
+            .Setup(b => b.UploadAsync(It.IsAny<Stream>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Mock.Of<Response<BlobContentInfo>>());
+
+        await _sut.UploadInspectResultAsync(jobId, content);
+
+        _inspectClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Once);
+        _uploadClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
+        _executeClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DownloadInspectResultAsync_UsesInspectContainer()
+    {
+        var jobId = Guid.NewGuid().ToString();
+        var stream = new MemoryStream(new byte[] { 1, 2, 3 });
+        var downloadResult = Mock.Of<BlobDownloadInfo>(d => d.Content == stream);
+        _inspectBlobClient
+            .Setup(b => b.DownloadAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Response.FromValue(downloadResult, Mock.Of<Response>()));
+
+        await _sut.DownloadInspectResultAsync(jobId);
+
+        _inspectClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Once);
+        _uploadClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
+        _executeClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UploadExecuteResultAsync_UsesExecuteContainer()
+    {
+        var jobId = Guid.NewGuid().ToString();
+        var content = new MemoryStream(new byte[] { 1, 2, 3 });
+
+        _executeBlobClient
+            .Setup(b => b.UploadAsync(It.IsAny<Stream>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Mock.Of<Response<BlobContentInfo>>());
+
+        await _sut.UploadExecuteResultAsync(jobId, content);
+
+        _executeClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Once);
+        _uploadClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
+        _inspectClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DownloadExecuteResultAsync_UsesExecuteContainer()
+    {
+        var jobId = Guid.NewGuid().ToString();
+        var stream = new MemoryStream(new byte[] { 1, 2, 3 });
+        var downloadResult = Mock.Of<BlobDownloadInfo>(d => d.Content == stream);
+        _executeBlobClient
+            .Setup(b => b.DownloadAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Response.FromValue(downloadResult, Mock.Of<Response>()));
+
+        await _sut.DownloadExecuteResultAsync(jobId);
+
+        _executeClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Once);
+        _uploadClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
+        _inspectClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task DeleteSourceAsync_UsesUploadContainer()
+    {
+        var documentId = Guid.NewGuid().ToString();
+        _uploadBlobClient
             .Setup(b => b.DeleteIfExistsAsync(It.IsAny<DeleteSnapshotsOption>(), It.IsAny<BlobRequestConditions>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Response.FromValue(true, Mock.Of<Response>()));
 
-        await _sut.DeleteAsync(path);
+        await _sut.DeleteSourceAsync(documentId);
 
-        _containerClient.Verify(c => c.GetBlobClient(path), Times.Once);
-        _blobClient.Verify(b => b.DeleteIfExistsAsync(DeleteSnapshotsOption.None, null, It.IsAny<CancellationToken>()), Times.Once);
+        _uploadClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Once);
+        _inspectClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
+        _executeClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
-    public async Task ExistsAsync_ReturnsTrueWhenBlobExists()
+    public async Task DeleteInspectResultAsync_UsesInspectContainer()
     {
-        var path = "source/exists.pdf";
-
-        _blobClient
-            .Setup(b => b.ExistsAsync(It.IsAny<CancellationToken>()))
+        var jobId = Guid.NewGuid().ToString();
+        _inspectBlobClient
+            .Setup(b => b.DeleteIfExistsAsync(It.IsAny<DeleteSnapshotsOption>(), It.IsAny<BlobRequestConditions>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Response.FromValue(true, Mock.Of<Response>()));
 
-        var result = await _sut.ExistsAsync(path);
+        await _sut.DeleteInspectResultAsync(jobId);
 
-        result.Should().BeTrue();
+        _inspectClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Once);
+        _uploadClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
+        _executeClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
-    public async Task ExistsAsync_ReturnsFalseWhenBlobDoesNotExist()
+    public async Task DeleteExecuteResultAsync_UsesExecuteContainer()
     {
-        var path = "source/missing.pdf";
+        var jobId = Guid.NewGuid().ToString();
+        _executeBlobClient
+            .Setup(b => b.DeleteIfExistsAsync(It.IsAny<DeleteSnapshotsOption>(), It.IsAny<BlobRequestConditions>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Response.FromValue(true, Mock.Of<Response>()));
 
-        _blobClient
-            .Setup(b => b.ExistsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Response.FromValue(false, Mock.Of<Response>()));
+        await _sut.DeleteExecuteResultAsync(jobId);
 
-        var result = await _sut.ExistsAsync(path);
+        _executeClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Once);
+        _uploadClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
+        _inspectClient.Verify(c => c.GetBlobClient(It.IsAny<string>()), Times.Never);
+    }
 
-        result.Should().BeFalse();
+    // --- Flat blob path tests ---
+
+    [Fact]
+    public async Task UploadSourceAsync_UsesFlatBlobPath_NoSourcePrefix()
+    {
+        var documentId = Guid.NewGuid().ToString();
+        var content = new MemoryStream(new byte[] { 1, 2, 3 });
+
+        _uploadBlobClient
+            .Setup(b => b.UploadAsync(It.IsAny<Stream>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Mock.Of<Response<BlobContentInfo>>());
+
+        await _sut.UploadSourceAsync(documentId, content);
+
+        _uploadClient.Verify(c => c.GetBlobClient(
+            It.Is<string>(p => !p.Contains('/') && p == $"{documentId}.pdf")),
+            Times.Once);
     }
 
     [Fact]
-    public async Task IntegrationUploadDownloadDelete_RoundTrip()
+    public async Task UploadInspectResultAsync_UsesFlatBlobPath_NoResultsPrefix()
     {
-        var connectionString = Environment.GetEnvironmentVariable("EFFITEX_STORAGE_CONNECTION");
-        if (connectionString == null) return;
+        var jobId = Guid.NewGuid().ToString();
+        var content = new MemoryStream(new byte[] { 1, 2, 3 });
 
-        var container = Environment.GetEnvironmentVariable("EFFITEX_BLOB_CONTAINER") ?? "effitex-test";
-        var client = new BlobServiceClient(connectionString);
-        var service = new BlobStorageService(client, container);
+        _inspectBlobClient
+            .Setup(b => b.UploadAsync(It.IsAny<Stream>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Mock.Of<Response<BlobContentInfo>>());
 
-        var path = $"test/{Guid.NewGuid()}.bin";
-        var bytes = new byte[] { 1, 2, 3, 4, 5 };
+        await _sut.UploadInspectResultAsync(jobId, content);
 
-        await service.UploadAsync(path, new MemoryStream(bytes), "application/octet-stream");
+        _inspectClient.Verify(c => c.GetBlobClient(
+            It.Is<string>(p => !p.Contains('/') && p == $"{jobId}.json")),
+            Times.Once);
+    }
 
-        var exists = await service.ExistsAsync(path);
-        exists.Should().BeTrue();
+    [Fact]
+    public async Task UploadExecuteResultAsync_UsesFlatBlobPath_NoResultsPrefix()
+    {
+        var jobId = Guid.NewGuid().ToString();
+        var content = new MemoryStream(new byte[] { 1, 2, 3 });
 
-        var downloaded = await service.DownloadAsync(path);
-        var result = new MemoryStream();
-        await downloaded.CopyToAsync(result);
-        result.ToArray().Should().Equal(bytes);
+        _executeBlobClient
+            .Setup(b => b.UploadAsync(It.IsAny<Stream>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Mock.Of<Response<BlobContentInfo>>());
 
-        await service.DeleteAsync(path);
+        await _sut.UploadExecuteResultAsync(jobId, content);
 
-        var existsAfter = await service.ExistsAsync(path);
-        existsAfter.Should().BeFalse();
+        _executeClient.Verify(c => c.GetBlobClient(
+            It.Is<string>(p => !p.Contains('/') && p == $"{jobId}.pdf")),
+            Times.Once);
     }
 }

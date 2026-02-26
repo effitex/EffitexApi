@@ -45,16 +45,15 @@ public static class DocumentEndpoints
             return Results.BadRequest(new { error = "File must be a PDF." });
 
         var documentId = Guid.NewGuid();
-        var blobPath = $"source/{documentId}.pdf";
 
         await using var stream = file.OpenReadStream();
-        await blobs.UploadAsync(blobPath, stream, "application/pdf");
+        await blobs.UploadSourceAsync(documentId.ToString(), stream);
 
         var now = DateTimeOffset.UtcNow;
         var doc = new DocumentEntity
         {
             Id = documentId,
-            BlobPath = blobPath,
+            BlobPath = $"{documentId}.pdf",
             FileName = file.FileName,
             FileSizeBytes = file.Length,
             UploadedAt = now,

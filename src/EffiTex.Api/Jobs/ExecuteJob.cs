@@ -29,17 +29,16 @@ public class ExecuteJob
 
         try
         {
-            var sourcePath = $"source/{job.DocumentId}.pdf";
-            using var pdfStream = await _blobs.DownloadAsync(sourcePath, ct);
+            using var pdfStream = await _blobs.DownloadSourceAsync(job.DocumentId.ToString(), ct);
 
             var instructions = _deserializer.Deserialize(job.Dsl);
 
             var resultStream = _runner.Execute(pdfStream, instructions);
 
-            var resultPath = $"results/{jobId}.pdf";
-            await _blobs.UploadAsync(resultPath, resultStream, "application/pdf", ct);
+            var resultId = jobId.ToString();
+            await _blobs.UploadExecuteResultAsync(resultId, resultStream, ct);
 
-            await _repo.UpdateJobStatusAsync(jobId, "complete", resultPath, null, ct);
+            await _repo.UpdateJobStatusAsync(jobId, "complete", resultId, null, ct);
         }
         catch (Exception ex)
         {

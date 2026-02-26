@@ -32,10 +32,12 @@ builder.Services.AddScoped<IDocumentRepository, DocumentRepository>();
 // Blob Storage — skipped in Testing (test factories provide a mock via ConfigureTestServices)
 if (storageConnection != null)
 {
-    var blobContainer = builder.Configuration["EFFITEX_BLOB_CONTAINER"] ?? "effitex";
+    var uploadContainer = builder.Configuration["EFFITEX_UPLOAD_CONTAINER"] ?? "effitex-upload";
+    var inspectContainer = builder.Configuration["EFFITEX_INSPECT_CONTAINER"] ?? "effitex-inspect";
+    var executeContainer = builder.Configuration["EFFITEX_EXECUTE_CONTAINER"] ?? "effitex-execute";
     builder.Services.AddSingleton(_ => new BlobServiceClient(storageConnection));
     builder.Services.AddSingleton<IBlobStorageService>(sp =>
-        new BlobStorageService(sp.GetRequiredService<BlobServiceClient>(), blobContainer));
+        new BlobStorageService(sp.GetRequiredService<BlobServiceClient>(), uploadContainer, inspectContainer, executeContainer));
 }
 
 // TTL

@@ -29,10 +29,15 @@ public class CleanupJob
                 foreach (var job in doc.Jobs)
                 {
                     if (job.ResultBlobPath is not null)
-                        await _blobs.DeleteAsync(job.ResultBlobPath, ct);
+                    {
+                        if (job.JobType == "inspect")
+                            await _blobs.DeleteInspectResultAsync(job.ResultBlobPath, ct);
+                        else
+                            await _blobs.DeleteExecuteResultAsync(job.ResultBlobPath, ct);
+                    }
                 }
 
-                await _blobs.DeleteAsync($"source/{doc.Id}.pdf", ct);
+                await _blobs.DeleteSourceAsync(doc.Id.ToString(), ct);
                 await _repo.DeleteDocumentAsync(doc.Id, ct);
             }
             catch (Exception ex)

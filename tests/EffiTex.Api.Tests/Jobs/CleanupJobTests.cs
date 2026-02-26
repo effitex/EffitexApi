@@ -1,5 +1,4 @@
 using FluentAssertions;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
@@ -26,7 +25,7 @@ public class CleanupJobTests
     private static DocumentEntity buildDocument(Guid? docId = null) => new DocumentEntity
     {
         Id = docId ?? Guid.NewGuid(),
-        BlobPath = "source/test.pdf",
+        BlobPath = "test.pdf",
         FileName = "test.pdf",
         FileSizeBytes = 100L,
         UploadedAt = DateTimeOffset.UtcNow.AddHours(-48),
@@ -49,28 +48,61 @@ public class CleanupJobTests
     }
 
     [Fact]
-    public async Task RunAsync_DeletesResultBlobsForJobsWithResultBlobPath()
+    public async Task RunAsync_DeletesInspectResultBlobForInspectJob()
     {
         var doc = buildDocument();
+        var jobId = Guid.NewGuid();
         var job = new JobEntity
         {
-            Id = Guid.NewGuid(),
+            Id = jobId,
             DocumentId = doc.Id,
+            JobType = "inspect",
             Status = "complete",
-            ResultBlobPath = "results/abc.json"
+            ResultBlobPath = jobId.ToString()
         };
         doc.Jobs.Add(job);
 
         _repo.Setup(r => r.GetExpiredDocumentsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<DocumentEntity> { doc });
-        _blobs.Setup(b => b.DeleteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _blobs.Setup(b => b.DeleteInspectResultAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        _blobs.Setup(b => b.DeleteSourceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
         _repo.Setup(r => r.DeleteDocumentAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         await _sut.RunAsync(CancellationToken.None);
 
-        _blobs.Verify(b => b.DeleteAsync("results/abc.json", It.IsAny<CancellationToken>()), Times.Once);
+        _blobs.Verify(b => b.DeleteInspectResultAsync(jobId.ToString(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RunAsync_DeletesExecuteResultBlobForExecuteJob()
+    {
+        var doc = buildDocument();
+        var jobId = Guid.NewGuid();
+        var job = new JobEntity
+        {
+            Id = jobId,
+            DocumentId = doc.Id,
+            JobType = "execute",
+            Status = "complete",
+            ResultBlobPath = jobId.ToString()
+        };
+        doc.Jobs.Add(job);
+
+        _repo.Setup(r => r.GetExpiredDocumentsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<DocumentEntity> { doc });
+        _blobs.Setup(b => b.DeleteExecuteResultAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        _blobs.Setup(b => b.DeleteSourceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        _repo.Setup(r => r.DeleteDocumentAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        await _sut.RunAsync(CancellationToken.None);
+
+        _blobs.Verify(b => b.DeleteExecuteResultAsync(jobId.ToString(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -81,14 +113,14 @@ public class CleanupJobTests
 
         _repo.Setup(r => r.GetExpiredDocumentsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<DocumentEntity> { doc });
-        _blobs.Setup(b => b.DeleteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _blobs.Setup(b => b.DeleteSourceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
         _repo.Setup(r => r.DeleteDocumentAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         await _sut.RunAsync(CancellationToken.None);
 
-        _blobs.Verify(b => b.DeleteAsync($"source/{docId}.pdf", It.IsAny<CancellationToken>()), Times.Once);
+        _blobs.Verify(b => b.DeleteSourceAsync(docId.ToString(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -99,7 +131,7 @@ public class CleanupJobTests
 
         _repo.Setup(r => r.GetExpiredDocumentsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<DocumentEntity> { doc });
-        _blobs.Setup(b => b.DeleteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _blobs.Setup(b => b.DeleteSourceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
         _repo.Setup(r => r.DeleteDocumentAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
@@ -110,13 +142,14 @@ public class CleanupJobTests
     }
 
     [Fact]
-    public async Task RunAsync_JobsWithNullResultBlobPathDoNotTriggerBlobDelete()
+    public async Task RunAsync_JobsWithNullResultBlobPathDoNotTriggerResultBlobDelete()
     {
         var doc = buildDocument();
         var job = new JobEntity
         {
             Id = Guid.NewGuid(),
             DocumentId = doc.Id,
+            JobType = "inspect",
             Status = "pending",
             ResultBlobPath = null
         };
@@ -124,14 +157,15 @@ public class CleanupJobTests
 
         _repo.Setup(r => r.GetExpiredDocumentsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<DocumentEntity> { doc });
-        _blobs.Setup(b => b.DeleteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _blobs.Setup(b => b.DeleteSourceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
         _repo.Setup(r => r.DeleteDocumentAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         await _sut.RunAsync(CancellationToken.None);
 
-        _blobs.Verify(b => b.DeleteAsync(It.Is<string>(s => s.StartsWith("results/")), It.IsAny<CancellationToken>()), Times.Never);
+        _blobs.Verify(b => b.DeleteInspectResultAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _blobs.Verify(b => b.DeleteExecuteResultAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -142,9 +176,9 @@ public class CleanupJobTests
 
         _repo.Setup(r => r.GetExpiredDocumentsAsync(It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new List<DocumentEntity> { doc1, doc2 });
-        _blobs.Setup(b => b.DeleteAsync($"source/{doc1.Id}.pdf", It.IsAny<CancellationToken>()))
+        _blobs.Setup(b => b.DeleteSourceAsync(doc1.Id.ToString(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new Exception("blob missing"));
-        _blobs.Setup(b => b.DeleteAsync($"source/{doc2.Id}.pdf", It.IsAny<CancellationToken>()))
+        _blobs.Setup(b => b.DeleteSourceAsync(doc2.Id.ToString(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
         _repo.Setup(r => r.DeleteDocumentAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);

@@ -45,7 +45,9 @@ public static class JobEndpoints
         if (job.Status != "complete")
             return Results.Conflict(new { error = "Job is not complete.", status = job.Status });
 
-        var stream = await blobs.DownloadAsync(job.ResultBlobPath);
+        var stream = job.JobType == "inspect"
+            ? await blobs.DownloadInspectResultAsync(job.ResultBlobPath)
+            : await blobs.DownloadExecuteResultAsync(job.ResultBlobPath);
 
         if (job.JobType == "inspect")
         {

@@ -80,10 +80,9 @@ public class DocumentUploadTests : IDisposable
 
         await _client.PostAsync("/documents", buildPdfUpload());
 
-        _factory.MockBlob.Verify(b => b.UploadAsync(
-            It.Is<string>(path => path.StartsWith("source/") && path.EndsWith(".pdf")),
+        _factory.MockBlob.Verify(b => b.UploadSourceAsync(
+            It.IsAny<string>(),
             It.IsAny<Stream>(),
-            "application/pdf",
             It.IsAny<CancellationToken>()), Times.Once);
     }
 

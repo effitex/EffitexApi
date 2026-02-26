@@ -34,17 +34,21 @@ public class JobResultTests : IDisposable
         ExpiresAt = DateTimeOffset.UtcNow.AddHours(23)
     };
 
-    private static JobEntity buildJob(DocumentEntity doc, string status, string jobType = "inspect") => new JobEntity
+    private static JobEntity buildJob(DocumentEntity doc, string status, string jobType = "inspect")
     {
-        Id = Guid.NewGuid(),
-        DocumentId = doc.Id,
-        Document = doc,
-        JobType = jobType,
-        Status = status,
-        CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-5),
-        CompletedAt = status is "complete" or "failed" ? DateTimeOffset.UtcNow : null,
-        ResultBlobPath = status == "complete" ? $"results/test.{(jobType == "inspect" ? "json" : "pdf")}" : null
-    };
+        var jobId = Guid.NewGuid();
+        return new JobEntity
+        {
+            Id = jobId,
+            DocumentId = doc.Id,
+            Document = doc,
+            JobType = jobType,
+            Status = status,
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-5),
+            CompletedAt = status is "complete" or "failed" ? DateTimeOffset.UtcNow : null,
+            ResultBlobPath = status == "complete" ? jobId.ToString() : null
+        };
+    }
 
     // --- Status endpoint ---
 
@@ -181,7 +185,7 @@ public class JobResultTests : IDisposable
         var job = buildJob(doc, "complete", "inspect");
         _factory.MockRepo.Setup(r => r.GetJobAsync(job.Id, It.IsAny<CancellationToken>())).ReturnsAsync(job);
         _factory.MockRepo.Setup(r => r.GetDocumentAsync(job.DocumentId, It.IsAny<CancellationToken>())).ReturnsAsync(doc);
-        _factory.MockBlob.Setup(b => b.DownloadAsync(job.ResultBlobPath, It.IsAny<CancellationToken>()))
+        _factory.MockBlob.Setup(b => b.DownloadInspectResultAsync(job.ResultBlobPath, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new MemoryStream(new byte[] { 123, 125 })); // {}
 
         var response = await _client.GetAsync($"/jobs/{job.Id}/result");
@@ -197,7 +201,7 @@ public class JobResultTests : IDisposable
         var job = buildJob(doc, "complete", "execute");
         _factory.MockRepo.Setup(r => r.GetJobAsync(job.Id, It.IsAny<CancellationToken>())).ReturnsAsync(job);
         _factory.MockRepo.Setup(r => r.GetDocumentAsync(job.DocumentId, It.IsAny<CancellationToken>())).ReturnsAsync(doc);
-        _factory.MockBlob.Setup(b => b.DownloadAsync(job.ResultBlobPath, It.IsAny<CancellationToken>()))
+        _factory.MockBlob.Setup(b => b.DownloadExecuteResultAsync(job.ResultBlobPath, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new MemoryStream(new byte[] { 0x25, 0x50, 0x44, 0x46 }));
 
         var response = await _client.GetAsync($"/jobs/{job.Id}/result");
@@ -213,7 +217,7 @@ public class JobResultTests : IDisposable
         var job = buildJob(doc, "complete", "execute");
         _factory.MockRepo.Setup(r => r.GetJobAsync(job.Id, It.IsAny<CancellationToken>())).ReturnsAsync(job);
         _factory.MockRepo.Setup(r => r.GetDocumentAsync(job.DocumentId, It.IsAny<CancellationToken>())).ReturnsAsync(doc);
-        _factory.MockBlob.Setup(b => b.DownloadAsync(job.ResultBlobPath, It.IsAny<CancellationToken>()))
+        _factory.MockBlob.Setup(b => b.DownloadExecuteResultAsync(job.ResultBlobPath, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new MemoryStream(new byte[] { 1, 2, 3, 4 }));
 
         var response = await _client.GetAsync($"/jobs/{job.Id}/result");
@@ -231,7 +235,7 @@ public class JobResultTests : IDisposable
         var expectedBytes = "{\"file_hash\":\"abc\"}"u8.ToArray();
         _factory.MockRepo.Setup(r => r.GetJobAsync(job.Id, It.IsAny<CancellationToken>())).ReturnsAsync(job);
         _factory.MockRepo.Setup(r => r.GetDocumentAsync(job.DocumentId, It.IsAny<CancellationToken>())).ReturnsAsync(doc);
-        _factory.MockBlob.Setup(b => b.DownloadAsync(job.ResultBlobPath, It.IsAny<CancellationToken>()))
+        _factory.MockBlob.Setup(b => b.DownloadInspectResultAsync(job.ResultBlobPath, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new MemoryStream(expectedBytes));
 
         var response = await _client.GetAsync($"/jobs/{job.Id}/result");

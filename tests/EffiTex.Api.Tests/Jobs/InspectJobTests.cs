@@ -34,11 +34,11 @@ public class InspectJobTests
         repo.Setup(r => r.GetJobAsync(jobId, It.IsAny<CancellationToken>())).ReturnsAsync(job);
         repo.Setup(r => r.UpdateJobStatusAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-        blobs.Setup(b => b.DownloadAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        blobs.Setup(b => b.DownloadSourceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new MemoryStream());
         runner.Setup(h => h.Inspect(It.IsAny<Stream>()))
             .Returns(new InspectResponse());
-        blobs.Setup(b => b.UploadAsync(It.IsAny<string>(), It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        blobs.Setup(b => b.UploadInspectResultAsync(It.IsAny<string>(), It.IsAny<Stream>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
     }
 
@@ -65,11 +65,11 @@ public class InspectJobTests
             .Returns(Task.CompletedTask);
         _repo.Setup(r => r.UpdateJobStatusAsync(jobId, "complete", It.IsAny<string>(), null, It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-        _blobs.Setup(b => b.DownloadAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _blobs.Setup(b => b.DownloadSourceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Callback(() => callOrder.Add("download"))
             .ReturnsAsync(new MemoryStream());
         _runner.Setup(h => h.Inspect(It.IsAny<Stream>())).Returns(new InspectResponse());
-        _blobs.Setup(b => b.UploadAsync(It.IsAny<string>(), It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _blobs.Setup(b => b.UploadInspectResultAsync(It.IsAny<string>(), It.IsAny<Stream>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         await _sut.RunAsync(jobId, CancellationToken.None);
@@ -87,7 +87,7 @@ public class InspectJobTests
 
         await _sut.RunAsync(jobId, CancellationToken.None);
 
-        _blobs.Verify(b => b.DownloadAsync($"source/{docId}.pdf", It.IsAny<CancellationToken>()), Times.Once);
+        _blobs.Verify(b => b.DownloadSourceAsync(docId.ToString(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -104,7 +104,7 @@ public class InspectJobTests
     }
 
     [Fact]
-    public async Task RunAsync_UploadsResultJsonToCorrectPath()
+    public async Task RunAsync_UploadsResultJsonWithJobId()
     {
         var jobId = Guid.NewGuid();
         var docId = Guid.NewGuid();
@@ -113,15 +113,14 @@ public class InspectJobTests
 
         await _sut.RunAsync(jobId, CancellationToken.None);
 
-        _blobs.Verify(b => b.UploadAsync(
-            $"results/{jobId}.json",
+        _blobs.Verify(b => b.UploadInspectResultAsync(
+            jobId.ToString(),
             It.IsAny<Stream>(),
-            "application/json",
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task RunAsync_SetsStatusToCompleteWithResultPath()
+    public async Task RunAsync_SetsStatusToCompleteWithJobId()
     {
         var jobId = Guid.NewGuid();
         var docId = Guid.NewGuid();
@@ -131,7 +130,7 @@ public class InspectJobTests
         await _sut.RunAsync(jobId, CancellationToken.None);
 
         _repo.Verify(r => r.UpdateJobStatusAsync(
-            jobId, "complete", $"results/{jobId}.json", null, It.IsAny<CancellationToken>()), Times.Once);
+            jobId, "complete", jobId.ToString(), null, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -144,7 +143,7 @@ public class InspectJobTests
         _repo.Setup(r => r.GetJobAsync(jobId, It.IsAny<CancellationToken>())).ReturnsAsync(job);
         _repo.Setup(r => r.UpdateJobStatusAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-        _blobs.Setup(b => b.DownloadAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _blobs.Setup(b => b.DownloadSourceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("blob error"));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => _sut.RunAsync(jobId, CancellationToken.None));
@@ -163,7 +162,7 @@ public class InspectJobTests
         _repo.Setup(r => r.GetJobAsync(jobId, It.IsAny<CancellationToken>())).ReturnsAsync(job);
         _repo.Setup(r => r.UpdateJobStatusAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-        _blobs.Setup(b => b.DownloadAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _blobs.Setup(b => b.DownloadSourceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("rethrow test"));
 
         var act = async () => await _sut.RunAsync(jobId, CancellationToken.None);
@@ -179,6 +178,6 @@ public class InspectJobTests
 
         await _sut.RunAsync(jobId, CancellationToken.None);
 
-        _blobs.Verify(b => b.DownloadAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _blobs.Verify(b => b.DownloadSourceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

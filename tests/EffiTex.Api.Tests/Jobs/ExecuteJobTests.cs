@@ -44,11 +44,11 @@ public class ExecuteJobTests
         _repo.Setup(r => r.GetJobAsync(jobId, It.IsAny<CancellationToken>())).ReturnsAsync(job);
         _repo.Setup(r => r.UpdateJobStatusAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-        _blobs.Setup(b => b.DownloadAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _blobs.Setup(b => b.DownloadSourceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new MemoryStream());
         _runner.Setup(r => r.Execute(It.IsAny<Stream>(), It.IsAny<InstructionSet>()))
             .Returns(new MemoryStream(new byte[] { 1, 2, 3, 4 }));
-        _blobs.Setup(b => b.UploadAsync(It.IsAny<string>(), It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _blobs.Setup(b => b.UploadExecuteResultAsync(It.IsAny<string>(), It.IsAny<Stream>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
     }
 
@@ -66,12 +66,12 @@ public class ExecuteJobTests
             .Returns(Task.CompletedTask);
         _repo.Setup(r => r.UpdateJobStatusAsync(jobId, "complete", It.IsAny<string>(), null, It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-        _blobs.Setup(b => b.DownloadAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _blobs.Setup(b => b.DownloadSourceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Callback(() => callOrder.Add("download"))
             .ReturnsAsync(new MemoryStream());
         _runner.Setup(r => r.Execute(It.IsAny<Stream>(), It.IsAny<InstructionSet>()))
             .Returns(new MemoryStream(new byte[] { 1 }));
-        _blobs.Setup(b => b.UploadAsync(It.IsAny<string>(), It.IsAny<Stream>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _blobs.Setup(b => b.UploadExecuteResultAsync(It.IsAny<string>(), It.IsAny<Stream>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
         await _sut.RunAsync(jobId, CancellationToken.None);
@@ -89,7 +89,7 @@ public class ExecuteJobTests
 
         await _sut.RunAsync(jobId, CancellationToken.None);
 
-        _blobs.Verify(b => b.DownloadAsync($"source/{docId}.pdf", It.IsAny<CancellationToken>()), Times.Once);
+        _blobs.Verify(b => b.DownloadSourceAsync(docId.ToString(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -108,7 +108,7 @@ public class ExecuteJobTests
     }
 
     [Fact]
-    public async Task RunAsync_UploadsResultPdfToCorrectPath()
+    public async Task RunAsync_UploadsResultPdfWithJobId()
     {
         var jobId = Guid.NewGuid();
         var docId = Guid.NewGuid();
@@ -117,15 +117,14 @@ public class ExecuteJobTests
 
         await _sut.RunAsync(jobId, CancellationToken.None);
 
-        _blobs.Verify(b => b.UploadAsync(
-            $"results/{jobId}.pdf",
+        _blobs.Verify(b => b.UploadExecuteResultAsync(
+            jobId.ToString(),
             It.IsAny<Stream>(),
-            "application/pdf",
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task RunAsync_SetsStatusToCompleteWithResultPath()
+    public async Task RunAsync_SetsStatusToCompleteWithJobId()
     {
         var jobId = Guid.NewGuid();
         var docId = Guid.NewGuid();
@@ -135,7 +134,7 @@ public class ExecuteJobTests
         await _sut.RunAsync(jobId, CancellationToken.None);
 
         _repo.Verify(r => r.UpdateJobStatusAsync(
-            jobId, "complete", $"results/{jobId}.pdf", null, It.IsAny<CancellationToken>()), Times.Once);
+            jobId, "complete", jobId.ToString(), null, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -148,7 +147,7 @@ public class ExecuteJobTests
         _repo.Setup(r => r.GetJobAsync(jobId, It.IsAny<CancellationToken>())).ReturnsAsync(job);
         _repo.Setup(r => r.UpdateJobStatusAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-        _blobs.Setup(b => b.DownloadAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _blobs.Setup(b => b.DownloadSourceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new MemoryStream());
         _runner.Setup(r => r.Execute(It.IsAny<Stream>(), It.IsAny<InstructionSet>()))
             .Throws(new InvalidOperationException("execute error"));
@@ -169,7 +168,7 @@ public class ExecuteJobTests
         _repo.Setup(r => r.GetJobAsync(jobId, It.IsAny<CancellationToken>())).ReturnsAsync(job);
         _repo.Setup(r => r.UpdateJobStatusAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-        _blobs.Setup(b => b.DownloadAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _blobs.Setup(b => b.DownloadSourceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new MemoryStream());
         _runner.Setup(r => r.Execute(It.IsAny<Stream>(), It.IsAny<InstructionSet>()))
             .Throws(new InvalidOperationException("rethrow test"));
@@ -187,6 +186,6 @@ public class ExecuteJobTests
 
         await _sut.RunAsync(jobId, CancellationToken.None);
 
-        _blobs.Verify(b => b.DownloadAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _blobs.Verify(b => b.DownloadSourceAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }
