@@ -23,7 +23,7 @@ public class ApiTestFactory : WebApplicationFactory<Program>
         // Preserved as-is if the caller has already set a real connection string.
         Environment.SetEnvironmentVariable("EFFITEX_PG_CONNECTION",
             Environment.GetEnvironmentVariable("EFFITEX_PG_CONNECTION")
-            ?? "Host=stub;Database=stub;Username=stub;Password=stub");
+            ?? "Host=localhost;Port=5432;Database=effitext;Username=effitex_user;Password=Password123");
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

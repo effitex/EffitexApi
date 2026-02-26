@@ -11,7 +11,8 @@
   <ItemGroup>
     <ProjectReference Include="..\EffiTex.Engine\EffiTex.Engine.csproj" />
     <ProjectReference Include="..\EffiTex.Core\EffiTex.Core.csproj" />
-    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="System.CommandLine" Version="2.0.3" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.3" />
   </ItemGroup>
 </Project>

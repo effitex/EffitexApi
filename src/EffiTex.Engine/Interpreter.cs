@@ -85,6 +85,6 @@ public class Interpreter
         var version = Assembly.GetExecutingAssembly().GetName().Version;
         var versionString = version != null ? version.ToString() : "0.0.0";
         var info = pdf.GetDocumentInfo();
-        info.SetMoreInfo("Processor", $"EffiTex {versionString}");
+        info.SetMoreInfo("Processor", $"EffiTex {versionString} (https://github.com/effitex/EffiTexApi)");
     }
 }
