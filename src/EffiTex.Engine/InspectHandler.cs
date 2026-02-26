@@ -1,4 +1,3 @@
-using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -420,7 +419,8 @@ public class InspectHandler
                     UnmappableCharCodes = first.UnmappableCharCodes,
                     Type3Info = first.Type3Info,
                     Type1GlyphNames = first.Type1GlyphNames,
-                    FontProgramData = first.FontProgramData,
+                    FontProgram = first.FontProgram,
+                    CidSet = first.CidSet,
                     Pages = g.Select(o => o.pageNum).OrderBy(p => p).ToArray()
                 };
             })
@@ -505,7 +505,7 @@ public class InspectHandler
         }
 
         // Parse font program binary for glyph names, CIDs, and widths
-        parseFontProgramData(fontDict, fontDescriptor, fontInfo);
+        parseFontStreams(fontDict, fontDescriptor, fontInfo);
 
         // Detect unmappable character codes
         detectUnmappableCharCodes(fontDict, fontInfo);
@@ -772,7 +772,7 @@ public class InspectHandler
         return type3Info;
     }
 
-    private static void parseFontProgramData(PdfDictionary fontDict, PdfDictionary fontDescriptor, FontInfo fontInfo)
+    private static void parseFontStreams(PdfDictionary fontDict, PdfDictionary fontDescriptor, FontInfo fontInfo)
     {
         var descriptor = fontDescriptor;
         if (fontDict.GetAsName(PdfName.Subtype)?.GetValue() == "Type0")
@@ -788,50 +788,102 @@ public class InspectHandler
 
         if (descriptor == null) return;
 
-        var fontFile2 = getFontStream(descriptor, "FontFile2");
-        if (fontFile2 != null)
+        var fontFile2Stream = getFontStreamObject(descriptor, "FontFile2");
+        if (fontFile2Stream != null)
         {
-            fontInfo.FontProgramData = compressToBase64(fontFile2);
-            parseTrueTypeFontProgram(fontFile2, fontInfo);
-            return;
+            fontInfo.FontProgram = buildPdfStreamData(fontFile2Stream);
+            parseTrueTypeFontProgram(fontFile2Stream.GetBytes(), fontInfo);
+        }
+        else
+        {
+            var fontFile3Stream = getFontStreamObject(descriptor, "FontFile3");
+            if (fontFile3Stream != null)
+            {
+                fontInfo.FontProgram = buildPdfStreamData(fontFile3Stream);
+            }
+            else
+            {
+                var fontFileStream = getFontStreamObject(descriptor, "FontFile");
+                if (fontFileStream != null)
+                {
+                    fontInfo.FontProgram = buildPdfStreamData(fontFileStream);
+                    parseType1FontProgram(fontFileStream.GetBytes(), fontInfo);
+                }
+            }
         }
 
-        var fontFile3 = getFontStream(descriptor, "FontFile3");
-        if (fontFile3 != null)
-        {
-            fontInfo.FontProgramData = compressToBase64(fontFile3);
-            return;
-        }
-
-        var fontFile = getFontStream(descriptor, "FontFile");
-        if (fontFile != null)
-        {
-            fontInfo.FontProgramData = compressToBase64(fontFile);
-            parseType1FontProgram(fontFile, fontInfo);
-        }
+        var cidSetStream = getFontStreamObject(descriptor, "CIDSet");
+        if (cidSetStream != null)
+            fontInfo.CidSet = buildPdfStreamData(cidSetStream);
     }
 
-    private static string compressToBase64(byte[] data)
-    {
-        using var output = new MemoryStream();
-        using (var gzip = new GZipStream(output, CompressionLevel.Optimal))
-        {
-            gzip.Write(data, 0, data.Length);
-        }
-        return Convert.ToBase64String(output.ToArray());
-    }
-
-    private static byte[] getFontStream(PdfDictionary descriptor, string key)
+    private static PdfStream getFontStreamObject(PdfDictionary descriptor, string key)
     {
         var obj = descriptor.Get(new PdfName(key));
         if (obj is PdfIndirectReference indRef)
             obj = indRef.GetRefersTo();
-        if (obj is PdfStream stream)
+        return obj as PdfStream;
+    }
+
+    private static string[] readStreamFilter(PdfStream stream)
+    {
+        var filterObj = stream.Get(PdfName.Filter);
+        if (filterObj == null) return null;
+        if (filterObj is PdfName name)
+            return new[] { name.GetValue() };
+        if (filterObj is PdfArray arr)
         {
-            try { return stream.GetBytes(); }
-            catch { return null; }
+            var result = new string[arr.Size()];
+            for (int i = 0; i < arr.Size(); i++)
+                result[i] = arr.GetAsName(i)?.GetValue();
+            return result;
         }
         return null;
+    }
+
+    private static Dictionary<string, object>[] readStreamDecodeParms(PdfStream stream)
+    {
+        var parmsObj = stream.Get(PdfName.DecodeParms);
+        if (parmsObj == null) return null;
+        if (parmsObj is PdfDictionary dict)
+            return new[] { pdfDictToStringObjectMap(dict) };
+        if (parmsObj is PdfArray arr)
+        {
+            var result = new Dictionary<string, object>[arr.Size()];
+            for (int i = 0; i < arr.Size(); i++)
+            {
+                var entry = arr.Get(i);
+                result[i] = entry is PdfDictionary entryDict
+                    ? pdfDictToStringObjectMap(entryDict)
+                    : null;
+            }
+            return result;
+        }
+        return null;
+    }
+
+    private static Dictionary<string, object> pdfDictToStringObjectMap(PdfDictionary dict)
+    {
+        if (dict == null) return null;
+        var result = new Dictionary<string, object>();
+        foreach (var key in dict.KeySet())
+            result[key.GetValue()] = pdfObjectToClr(dict.Get(key));
+        return result;
+    }
+
+    private static PdfStreamData buildPdfStreamData(PdfStream stream)
+    {
+        if (stream == null) return null;
+        byte[] rawBytes;
+        try { rawBytes = stream.GetBytes(false); }
+        catch { return null; }
+
+        return new PdfStreamData
+        {
+            Data = Convert.ToBase64String(rawBytes),
+            Filter = readStreamFilter(stream),
+            DecodeParms = readStreamDecodeParms(stream)
+        };
     }
 
     private static void parseTrueTypeFontProgram(byte[] data, FontInfo fontInfo)

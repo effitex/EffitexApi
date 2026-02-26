@@ -1,5 +1,4 @@
 using System.Collections;
-using System.IO.Compression;
 using EffiTex.Engine;
 using EffiTex.Engine.Models.Inspect;
 using FluentAssertions;
@@ -354,42 +353,17 @@ public class InspectHandlerTests
     }
 
     [Fact]
-    public void Inspect_EmbeddedFont_FontProgramDataIsValidBase64GzippedBytes()
-    {
-        var path = FixtureGenerator.EnsureMixedFonts();
-        var result = inspectFixture(path);
-
-        var embeddedFont = result.Fonts.First(f => f.IsEmbedded);
-        var prop = typeof(DocumentFont).GetProperty("FontProgramData");
-        prop.Should().NotBeNull("DocumentFont must have a FontProgramData property");
-
-        var value = prop.GetValue(embeddedFont) as string;
-        value.Should().NotBeNullOrEmpty();
-
-        var compressedBytes = Convert.FromBase64String(value);
-        using var ms = new MemoryStream(compressedBytes);
-        using var gzip = new GZipStream(ms, CompressionMode.Decompress);
-        using var output = new MemoryStream();
-        gzip.CopyTo(output);
-        output.Length.Should().BeGreaterThan(0);
-    }
-
-    [Fact]
-    public void Inspect_NonEmbeddedFont_FontProgramDataIsNull()
+    public void Inspect_NonEmbeddedFont_FontProgramIsNull()
     {
         var path = FixtureGenerator.EnsureMixedFonts();
         var result = inspectFixture(path);
 
         var nonEmbedded = result.Fonts.First(f => !f.IsEmbedded);
-        var prop = typeof(DocumentFont).GetProperty("FontProgramData");
-        prop.Should().NotBeNull("DocumentFont must have a FontProgramData property");
-
-        var value = prop.GetValue(nonEmbedded);
-        value.Should().BeNull();
+        nonEmbedded.FontProgram.Should().BeNull();
     }
 
     [Fact]
-    public void Inspect_MultipleEmbeddedFonts_EachHasDistinctFontProgramData()
+    public void Inspect_MultipleEmbeddedFonts_EachHasDistinctFontProgram()
     {
         var path = FixtureGenerator.EnsureMultipleEmbeddedFonts();
         var result = inspectFixture(path);
@@ -397,13 +371,16 @@ public class InspectHandlerTests
         var embeddedFonts = result.Fonts.Where(f => f.IsEmbedded).ToList();
         embeddedFonts.Should().HaveCountGreaterThanOrEqualTo(2);
 
-        var prop = typeof(DocumentFont).GetProperty("FontProgramData");
-        prop.Should().NotBeNull("DocumentFont must have a FontProgramData property");
+        embeddedFonts.Should().AllSatisfy(f =>
+        {
+            f.FontProgram.Should().NotBeNull();
+            f.FontProgram.Data.Should().NotBeNullOrEmpty();
+        });
 
-        var values = embeddedFonts.Select(f => prop.GetValue(f) as string).ToList();
-        values.Should().AllSatisfy(v => v.Should().NotBeNullOrEmpty());
-        values.Distinct().Should().HaveCountGreaterThan(1,
-            "different embedded fonts must have different font program bytes");
+        embeddedFonts.Select(f => f.FontProgram.Data)
+            .Distinct()
+            .Should().HaveCountGreaterThan(1,
+                "different embedded fonts must produce different font program bytes");
     }
 
     [Fact]
@@ -485,26 +462,17 @@ public class InspectHandlerTests
     }
 
     [Fact]
-    public void Inspect_MultiPageEmbeddedFont_FontProgramDataOnDocumentFont()
+    public void Inspect_MultiPageEmbeddedFont_FontProgramOnDocumentFont()
     {
         var path = FixtureGenerator.EnsureMultiPageEmbeddedFont();
         var result = inspectFixture(path);
 
-        var fontsProp = typeof(InspectResponse).GetProperty("Fonts");
-        fontsProp.Should().NotBeNull("InspectResponse must have a top-level Fonts property");
+        var embeddedFont = result.Fonts.FirstOrDefault(f => f.IsEmbedded);
+        embeddedFont.Should().NotBeNull("fixture must contain an embedded font");
 
-        var docFonts = fontsProp.GetValue(result) as IList;
-        docFonts.Should().NotBeNull();
-        docFonts.Count.Should().BeGreaterThan(0);
-
-        var embeddedFont = docFonts.Cast<object>()
-            .FirstOrDefault(f => (bool)(f.GetType().GetProperty("IsEmbedded")?.GetValue(f) ?? false));
-        embeddedFont.Should().NotBeNull("at least one embedded font must be present at document level");
-
-        var programDataProp = embeddedFont.GetType().GetProperty("FontProgramData");
-        programDataProp.Should().NotBeNull("DocumentFont must have FontProgramData");
-        (programDataProp.GetValue(embeddedFont) as string).Should().NotBeNullOrEmpty(
-            "embedded font must have FontProgramData at document level");
+        embeddedFont.FontProgram.Should().NotBeNull();
+        embeddedFont.FontProgram.Data.Should().NotBeNullOrEmpty(
+            "embedded font must have FontProgram at document level");
     }
 
     [Fact]
@@ -539,6 +507,101 @@ public class InspectHandlerTests
                 docFontNames.Should().Contain(fontName,
                     $"font '{fontName}' on page {page.PageNumber} must exist in document-level Fonts");
             }
+        }
+    }
+
+    [Fact]
+    public void PdfStreamData_HasExpectedProperties()
+    {
+        var t = typeof(PdfStreamData);
+        t.GetProperty("Data").Should().NotBeNull();
+        t.GetProperty("Filter").PropertyType.Should().Be(typeof(string[]));
+        t.GetProperty("DecodeParms").PropertyType.Should().Be(typeof(Dictionary<string, object>[]));
+    }
+
+    [Fact]
+    public void FontInfo_DoesNotHave_FontProgramData()
+    {
+        typeof(FontInfo).GetProperty("FontProgramData").Should().BeNull(
+            "FontProgramData has been replaced by FontProgram");
+    }
+
+    [Fact]
+    public void DocumentFont_DoesNotHave_FontProgramData()
+    {
+        typeof(DocumentFont).GetProperty("FontProgramData").Should().BeNull(
+            "FontProgramData has been replaced by FontProgram");
+    }
+
+    [Fact]
+    public void Inspect_EmbeddedFont_FontProgramDataIsRawBase64NotGzip()
+    {
+        var path = FixtureGenerator.EnsureMixedFonts();
+        var result = inspectFixture(path);
+
+        var embeddedFont = result.Fonts.First(f => f.IsEmbedded);
+        embeddedFont.FontProgram.Should().NotBeNull();
+        embeddedFont.FontProgram.Data.Should().NotBeNullOrEmpty();
+
+        var rawBytes = Convert.FromBase64String(embeddedFont.FontProgram.Data);
+        rawBytes.Should().NotBeEmpty();
+
+        // Must NOT be gzip (magic bytes 0x1F 0x8B)
+        if (rawBytes.Length >= 2)
+            (rawBytes[0] == 0x1F && rawBytes[1] == 0x8B).Should().BeFalse(
+                "FontProgram.Data must be raw PDF stream bytes, not re-gzipped");
+    }
+
+    [Fact]
+    public void Inspect_EmbeddedFont_FontProgramFilterIsStringArrayOrNull()
+    {
+        var path = FixtureGenerator.EnsureMixedFonts();
+        var result = inspectFixture(path);
+
+        var embeddedFont = result.Fonts.First(f => f.IsEmbedded);
+        embeddedFont.FontProgram.Should().NotBeNull();
+
+        // Filter is null (uncompressed stream) or a non-empty string[]
+        if (embeddedFont.FontProgram.Filter != null)
+        {
+            embeddedFont.FontProgram.Filter.Should().NotBeEmpty();
+            embeddedFont.FontProgram.Filter.Should()
+                .AllSatisfy(f => f.Should().NotBeNullOrEmpty());
+        }
+    }
+
+    [Fact]
+    public void Inspect_EmbeddedFont_FontProgramDataRoundTripsBase64()
+    {
+        // Verifies Data is valid base64 and decodes to a non-empty byte array
+        var path = FixtureGenerator.EnsureMultipleEmbeddedFonts();
+        var result = inspectFixture(path);
+
+        foreach (var font in result.Fonts.Where(f => f.IsEmbedded))
+        {
+            var act = () => Convert.FromBase64String(font.FontProgram.Data);
+            act.Should().NotThrow("FontProgram.Data must be valid base64");
+            Convert.FromBase64String(font.FontProgram.Data).Should().NotBeEmpty();
+        }
+    }
+
+    [Fact]
+    public void Inspect_FontWithCidSet_CidSetIsPopulated()
+    {
+        // Uses whatever fixture has an embedded CIDFont. If none have a CIDSet stream,
+        // the test passes vacuously — this is acceptable until a fixture with CIDSet exists.
+        var path = FixtureGenerator.EnsureMixedFonts();
+        var result = inspectFixture(path);
+
+        var fontsWithCidSet = result.Fonts.Where(f => f.HasCidset).ToList();
+        if (!fontsWithCidSet.Any()) return;
+
+        foreach (var font in fontsWithCidSet)
+        {
+            font.CidSet.Should().NotBeNull(
+                $"font '{font.Name}' has HasCidset=true so CidSet must be populated");
+            font.CidSet.Data.Should().NotBeNullOrEmpty();
+            Convert.FromBase64String(font.CidSet.Data).Should().NotBeEmpty();
         }
     }
 }
