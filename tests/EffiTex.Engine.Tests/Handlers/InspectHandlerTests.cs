@@ -1,3 +1,4 @@
+using System.Collections;
 using System.IO.Compression;
 using EffiTex.Engine;
 using EffiTex.Engine.Models.Inspect;
@@ -247,7 +248,7 @@ public class InspectHandlerTests
         var result = inspectFixture(path);
 
         result.Pages.Should().HaveCount(1);
-        result.Pages[0].Fonts.Should().NotBeEmpty();
+        result.Fonts.Should().NotBeEmpty();
     }
 
     [Fact]
@@ -256,8 +257,7 @@ public class InspectHandlerTests
         var path = FixtureGenerator.EnsureUntaggedSimple();
         var result = inspectFixture(path);
 
-        var fonts = result.Pages[0].Fonts;
-        fonts.Should().Contain(f => f.Name.Contains("Helvetica"));
+        result.Fonts.Should().Contain(f => f.Name.Contains("Helvetica"));
     }
 
     [Fact]
@@ -266,9 +266,7 @@ public class InspectHandlerTests
         var path = FixtureGenerator.EnsureUntaggedSimple();
         var result = inspectFixture(path);
 
-        var helvetica = result.Pages[0].Fonts
-            .First(f => f.Name.Contains("Helvetica"));
-
+        var helvetica = result.Fonts.First(f => f.Name.Contains("Helvetica"));
         helvetica.IsEmbedded.Should().BeFalse();
     }
 
@@ -278,9 +276,7 @@ public class InspectHandlerTests
         var path = FixtureGenerator.EnsureUntaggedSimple();
         var result = inspectFixture(path);
 
-        var helvetica = result.Pages[0].Fonts
-            .First(f => f.Name.Contains("Helvetica"));
-
+        var helvetica = result.Fonts.First(f => f.Name.Contains("Helvetica"));
         helvetica.Encoding.Should().NotBeNull();
     }
 
@@ -291,7 +287,7 @@ public class InspectHandlerTests
         var result = inspectFixture(path);
 
         result.Pages.Should().HaveCount(1);
-        result.Pages[0].Fonts.Should().BeEmpty();
+        result.Fonts.Should().BeEmpty();
     }
 
     [Fact]
@@ -300,12 +296,11 @@ public class InspectHandlerTests
         var path = FixtureGenerator.EnsureMixedFonts();
         var result = inspectFixture(path);
 
-        // Page 1 has CIDFontType2 (embedded) and Type1 (Helvetica)
-        var page1Fonts = result.Pages[0].Fonts;
-        page1Fonts.Should().HaveCountGreaterThanOrEqualTo(2);
+        var docFonts = result.Fonts;
+        docFonts.Should().HaveCountGreaterThanOrEqualTo(2);
 
         // The embedded CID font should have a ToUnicode CMap
-        var cidFont = page1Fonts.First(f => f.IsEmbedded);
+        var cidFont = docFonts.First(f => f.IsEmbedded);
         cidFont.HasTounicode.Should().BeTrue();
     }
 
@@ -315,12 +310,12 @@ public class InspectHandlerTests
         var path = FixtureGenerator.EnsureMixedFonts();
         var result = inspectFixture(path);
 
-        var page1Fonts = result.Pages[0].Fonts;
+        var docFonts = result.Fonts;
 
         // CID font is embedded
-        page1Fonts.Should().Contain(f => f.IsEmbedded);
+        docFonts.Should().Contain(f => f.IsEmbedded);
         // Helvetica is not embedded
-        page1Fonts.Should().Contain(f => !f.IsEmbedded && f.Name.Contains("Helvetica"));
+        docFonts.Should().Contain(f => !f.IsEmbedded && f.Name.Contains("Helvetica"));
     }
 
     [Fact]
@@ -329,7 +324,7 @@ public class InspectHandlerTests
         var path = FixtureGenerator.EnsureMixedFonts();
         var result = inspectFixture(path);
 
-        var cidFont = result.Pages[0].Fonts.First(f => f.IsEmbedded);
+        var cidFont = result.Fonts.First(f => f.IsEmbedded);
         cidFont.TounicodeMappings.Should().NotBeEmpty();
     }
 
@@ -339,11 +334,8 @@ public class InspectHandlerTests
         var path = FixtureGenerator.EnsureMixedFonts();
         var result = inspectFixture(path);
 
-        // Page 2 has the Type3 font
-        var page2Fonts = result.Pages[1].Fonts;
-        page2Fonts.Should().NotBeEmpty();
-
-        var type3Font = page2Fonts.First(f => f.FontType == "Type3");
+        result.Fonts.Should().NotBeEmpty();
+        var type3Font = result.Fonts.First(f => f.FontType == "Type3");
         type3Font.Type3Info.Should().NotBeNull();
         type3Font.Type3Info.CharProcsGlyphNames.Should().Contain("glyph0");
         type3Font.Type3Info.CharProcsGlyphNames.Should().Contain("glyph1");
@@ -357,7 +349,7 @@ public class InspectHandlerTests
         var result = inspectFixture(path);
 
         // Type3 font with non-AGL glyph names and no ToUnicode → unmappable
-        var type3Font = result.Pages[1].Fonts.First(f => f.FontType == "Type3");
+        var type3Font = result.Fonts.First(f => f.FontType == "Type3");
         type3Font.UnmappableCharCodes.Should().NotBeEmpty();
     }
 
@@ -367,9 +359,9 @@ public class InspectHandlerTests
         var path = FixtureGenerator.EnsureMixedFonts();
         var result = inspectFixture(path);
 
-        var embeddedFont = result.Pages[0].Fonts.First(f => f.IsEmbedded);
-        var prop = typeof(FontInfo).GetProperty("FontProgramData");
-        prop.Should().NotBeNull("FontInfo must have a FontProgramData property");
+        var embeddedFont = result.Fonts.First(f => f.IsEmbedded);
+        var prop = typeof(DocumentFont).GetProperty("FontProgramData");
+        prop.Should().NotBeNull("DocumentFont must have a FontProgramData property");
 
         var value = prop.GetValue(embeddedFont) as string;
         value.Should().NotBeNullOrEmpty();
@@ -388,9 +380,9 @@ public class InspectHandlerTests
         var path = FixtureGenerator.EnsureMixedFonts();
         var result = inspectFixture(path);
 
-        var nonEmbedded = result.Pages[0].Fonts.First(f => !f.IsEmbedded);
-        var prop = typeof(FontInfo).GetProperty("FontProgramData");
-        prop.Should().NotBeNull("FontInfo must have a FontProgramData property");
+        var nonEmbedded = result.Fonts.First(f => !f.IsEmbedded);
+        var prop = typeof(DocumentFont).GetProperty("FontProgramData");
+        prop.Should().NotBeNull("DocumentFont must have a FontProgramData property");
 
         var value = prop.GetValue(nonEmbedded);
         value.Should().BeNull();
@@ -402,11 +394,11 @@ public class InspectHandlerTests
         var path = FixtureGenerator.EnsureMultipleEmbeddedFonts();
         var result = inspectFixture(path);
 
-        var embeddedFonts = result.Pages[0].Fonts.Where(f => f.IsEmbedded).ToList();
+        var embeddedFonts = result.Fonts.Where(f => f.IsEmbedded).ToList();
         embeddedFonts.Should().HaveCountGreaterThanOrEqualTo(2);
 
-        var prop = typeof(FontInfo).GetProperty("FontProgramData");
-        prop.Should().NotBeNull("FontInfo must have a FontProgramData property");
+        var prop = typeof(DocumentFont).GetProperty("FontProgramData");
+        prop.Should().NotBeNull("DocumentFont must have a FontProgramData property");
 
         var values = embeddedFonts.Select(f => prop.GetValue(f) as string).ToList();
         values.Should().AllSatisfy(v => v.Should().NotBeNullOrEmpty());
@@ -448,5 +440,105 @@ public class InspectHandlerTests
     public void FontInfo_DoesNotHave_CidsetCids()
     {
         typeof(FontInfo).GetProperty("CidsetCids").Should().BeNull();
+    }
+
+    // --- Failing tests for new response shape (Prompt 2) ---
+
+    [Fact]
+    public void InspectResponse_HasTopLevelFontsProperty()
+    {
+        typeof(InspectResponse).GetProperty("Fonts").Should().NotBeNull(
+            "InspectResponse must have a top-level Fonts array");
+    }
+
+    [Fact]
+    public void DocumentFont_HasPagesIntArrayProperty()
+    {
+        var assembly = typeof(InspectResponse).Assembly;
+        var documentFontType = assembly.GetTypes().FirstOrDefault(t => t.Name == "DocumentFont");
+        documentFontType.Should().NotBeNull("DocumentFont class must exist in EffiTex.Engine");
+        var pagesProp = documentFontType?.GetProperty("Pages");
+        pagesProp.Should().NotBeNull("DocumentFont must have a Pages property");
+        pagesProp?.PropertyType.Should().Be(typeof(int[]), "DocumentFont.Pages must be int[]");
+    }
+
+    [Fact]
+    public void PageInfo_FontsIsListOfString()
+    {
+        typeof(PageInfo).GetProperty("Fonts").PropertyType
+            .Should().Be(typeof(List<string>), "page-level Fonts must be font name strings only");
+    }
+
+    [Fact]
+    public void Inspect_StructuredHeadings_SharedFontDeduplicatedToSingleDocumentEntry()
+    {
+        var path = FixtureGenerator.EnsureStructuredHeadings();
+        var result = inspectFixture(path);
+
+        var fontsProp = typeof(InspectResponse).GetProperty("Fonts");
+        fontsProp.Should().NotBeNull("InspectResponse must have a top-level Fonts property");
+
+        var docFonts = fontsProp.GetValue(result) as IList;
+        docFonts.Should().NotBeNull();
+        docFonts.Count.Should().Be(1,
+            "Helvetica appears on both pages but must produce exactly one document-level entry");
+    }
+
+    [Fact]
+    public void Inspect_MultiPageEmbeddedFont_FontProgramDataOnDocumentFont()
+    {
+        var path = FixtureGenerator.EnsureMultiPageEmbeddedFont();
+        var result = inspectFixture(path);
+
+        var fontsProp = typeof(InspectResponse).GetProperty("Fonts");
+        fontsProp.Should().NotBeNull("InspectResponse must have a top-level Fonts property");
+
+        var docFonts = fontsProp.GetValue(result) as IList;
+        docFonts.Should().NotBeNull();
+        docFonts.Count.Should().BeGreaterThan(0);
+
+        var embeddedFont = docFonts.Cast<object>()
+            .FirstOrDefault(f => (bool)(f.GetType().GetProperty("IsEmbedded")?.GetValue(f) ?? false));
+        embeddedFont.Should().NotBeNull("at least one embedded font must be present at document level");
+
+        var programDataProp = embeddedFont.GetType().GetProperty("FontProgramData");
+        programDataProp.Should().NotBeNull("DocumentFont must have FontProgramData");
+        (programDataProp.GetValue(embeddedFont) as string).Should().NotBeNullOrEmpty(
+            "embedded font must have FontProgramData at document level");
+    }
+
+    [Fact]
+    public void Inspect_StructuredHeadings_AllPageFontNamesHaveDocumentLevelEntry()
+    {
+        var path = FixtureGenerator.EnsureStructuredHeadings();
+        var result = inspectFixture(path);
+
+        var fontsProp = typeof(InspectResponse).GetProperty("Fonts");
+        fontsProp.Should().NotBeNull("InspectResponse must have a top-level Fonts property");
+
+        var docFonts = fontsProp.GetValue(result) as IList;
+        docFonts.Should().NotBeNull();
+
+        var docFontNames = new HashSet<string>();
+        foreach (var font in docFonts)
+        {
+            var name = font.GetType().GetProperty("Name")?.GetValue(font) as string;
+            if (name != null) docFontNames.Add(name);
+        }
+
+        var pageFontsProp = typeof(PageInfo).GetProperty("Fonts");
+        pageFontsProp.PropertyType.Should().Be(typeof(List<string>),
+            "PageInfo.Fonts must be List<string> after refactor");
+
+        foreach (var page in result.Pages)
+        {
+            var pageFonts = pageFontsProp.GetValue(page) as List<string>;
+            pageFonts.Should().NotBeNull();
+            foreach (var fontName in pageFonts)
+            {
+                docFontNames.Should().Contain(fontName,
+                    $"font '{fontName}' on page {page.PageNumber} must exist in document-level Fonts");
+            }
+        }
     }
 }

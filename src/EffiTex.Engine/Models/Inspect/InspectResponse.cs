@@ -6,6 +6,7 @@ public class InspectResponse
     public long FileSizeBytes { get; set; }
     public DocumentInfo Document { get; set; }
     public string XmpMetadata { get; set; }
+    public List<DocumentFont> Fonts { get; set; } = new();
     public List<StructureTreeNode> StructureTree { get; set; }
     public Dictionary<string, string> RoleMap { get; set; }
     public List<PageInfo> Pages { get; set; }

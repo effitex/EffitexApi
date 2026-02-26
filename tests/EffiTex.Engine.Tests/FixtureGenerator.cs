@@ -318,6 +318,40 @@ public static class FixtureGenerator
         return path;
     }
 
+    public static string EnsureMultiPageEmbeddedFont()
+    {
+        var path = GetFixturePath("multi_page_embedded_font.pdf");
+        if (File.Exists(path)) return path;
+
+        using var writer = new PdfWriter(path);
+        using var pdf = new PdfDocument(writer);
+
+        var fontsDir = Environment.GetFolderPath(Environment.SpecialFolder.Fonts);
+        string fontPath = null;
+        foreach (var candidate in new[] { "arial.ttf", "segoeui.ttf", "calibri.ttf" })
+        {
+            var p = System.IO.Path.Combine(fontsDir, candidate);
+            if (File.Exists(p)) { fontPath = p; break; }
+        }
+
+        if (fontPath == null)
+            throw new InvalidOperationException("Cannot find a TrueType font for multi_page_embedded_font fixture.");
+
+        var embeddedFont = PdfFontFactory.CreateFont(fontPath, PdfEncodings.IDENTITY_H,
+            PdfFontFactory.EmbeddingStrategy.FORCE_EMBEDDED);
+
+        var page1 = pdf.AddNewPage(PageSize.LETTER);
+        var canvas1 = new PdfCanvas(page1);
+        canvas1.BeginText().SetFontAndSize(embeddedFont, 14).MoveText(72, 700).ShowText("Page One").EndText();
+
+        var page2 = pdf.AddNewPage(PageSize.LETTER);
+        var canvas2 = new PdfCanvas(page2);
+        canvas2.BeginText().SetFontAndSize(embeddedFont, 14).MoveText(72, 700).ShowText("Page Two").EndText();
+
+        pdf.Close();
+        return path;
+    }
+
     public static string CreateTempPdf()
     {
         var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"effitex_test_{Guid.NewGuid():N}.pdf");

@@ -8,6 +8,6 @@ public class PageInfo
     public string TabOrder { get; set; }
     public List<ContentOperatorInfo> ContentOperators { get; set; } = new();
     public List<AnnotationInfo> Annotations { get; set; } = new();
-    public List<FontInfo> Fonts { get; set; } = new();
+    public List<string> Fonts { get; set; } = new();
     public List<int> StructuredMcids { get; set; }
 }

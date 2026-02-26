@@ -26,15 +26,18 @@ public class InspectHandler
         using var reader = new PdfReader(memStream);
         using var pdf = new PdfDocument(reader);
 
+        var (pages, docFonts) = readPages(pdf);
+
         var response = new InspectResponse
         {
             FileHash = fileHash,
             FileSizeBytes = streamBytes.Length,
             Document = buildDocumentInfo(pdf),
             XmpMetadata = readXmpMetadata(pdf),
+            Fonts = docFonts,
             StructureTree = readStructureTree(pdf),
             RoleMap = readRoleMap(pdf),
-            Pages = readPages(pdf),
+            Pages = pages,
             Outlines = readOutlines(pdf),
             EmbeddedFiles = readEmbeddedFiles(pdf),
             OcgConfigurations = readOcgConfigurations(pdf)
@@ -361,9 +364,10 @@ public class InspectHandler
         return result;
     }
 
-    private static List<PageInfo> readPages(PdfDocument pdf)
+    private static (List<PageInfo> pages, List<DocumentFont> docFonts) readPages(PdfDocument pdf)
     {
         var pages = new List<PageInfo>();
+        var allOccurrences = new List<(int pageNum, FontInfo info)>();
 
         for (int i = 1; i <= pdf.GetNumberOfPages(); i++)
         {
@@ -372,6 +376,7 @@ public class InspectHandler
             var mediaBox = page.GetMediaBox();
 
             var tabOrder = pageDict.GetAsName(PdfName.Tabs)?.GetValue();
+            var pageFonts = readPageFonts(pdf, i);
 
             var pageInfo = new PageInfo
             {
@@ -379,14 +384,49 @@ public class InspectHandler
                 Width = mediaBox.GetWidth(),
                 Height = mediaBox.GetHeight(),
                 TabOrder = tabOrder,
-                Fonts = readPageFonts(pdf, i),
+                Fonts = pageFonts.Select(f => f.Name).ToList(),
                 StructuredMcids = readStructuredMcids(pdf, i)
             };
 
             pages.Add(pageInfo);
+
+            foreach (var fontInfo in pageFonts)
+                allOccurrences.Add((i, fontInfo));
         }
 
-        return pages;
+        var docFonts = allOccurrences
+            .GroupBy(o => o.info.Name)
+            .Select(g =>
+            {
+                var first = g.First().info;
+                return new DocumentFont
+                {
+                    Name = first.Name,
+                    FontType = first.FontType,
+                    IsEmbedded = first.IsEmbedded,
+                    IsSymbolic = first.IsSymbolic,
+                    HasTounicode = first.HasTounicode,
+                    HasNotdefGlyph = first.HasNotdefGlyph,
+                    Encoding = first.Encoding,
+                    HasCharset = first.HasCharset,
+                    HasCidset = first.HasCidset,
+                    HasFontDescriptor = first.HasFontDescriptor,
+                    CidSystemInfo = first.CidSystemInfo,
+                    CmapInfo = first.CmapInfo,
+                    CidToGidMap = first.CidToGidMap,
+                    EncodingDetail = first.EncodingDetail,
+                    CmapSubtables = first.CmapSubtables,
+                    TounicodeMappings = first.TounicodeMappings,
+                    UnmappableCharCodes = first.UnmappableCharCodes,
+                    Type3Info = first.Type3Info,
+                    Type1GlyphNames = first.Type1GlyphNames,
+                    FontProgramData = first.FontProgramData,
+                    Pages = g.Select(o => o.pageNum).OrderBy(p => p).ToArray()
+                };
+            })
+            .ToList();
+
+        return (pages, docFonts);
     }
 
     private static List<FontInfo> readPageFonts(PdfDocument pdf, int pageNumber)
