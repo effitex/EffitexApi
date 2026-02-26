@@ -7,7 +7,7 @@ CliSetup.ConfigureServices(services);
 var provider = services.BuildServiceProvider();
 
 var rootCommand = new RootCommand("EffiTex PDF structure API — local CLI");
-rootCommand.AddCommand(InspectCommand.Build(provider));
-rootCommand.AddCommand(ExecuteCommand.Build(provider));
+rootCommand.Subcommands.Add(InspectCommand.Build(provider));
+rootCommand.Subcommands.Add(ExecuteCommand.Build(provider));
 
-return await rootCommand.InvokeAsync(args);
+return await rootCommand.Parse(args).InvokeAsync();

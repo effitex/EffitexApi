@@ -10,7 +10,7 @@ public class SmokeTests
     public async Task RootCommand_Help_ExitCodeZero()
     {
         var rootCommand = new RootCommand("EffiTex PDF structure API — local CLI");
-        var exitCode = await rootCommand.InvokeAsync("--help");
+        var exitCode = await rootCommand.Parse("--help").InvokeAsync();
         exitCode.Should().Be(0);
     }
 }

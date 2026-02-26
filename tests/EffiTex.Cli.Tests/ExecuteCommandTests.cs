@@ -9,6 +9,7 @@ using Xunit;
 
 namespace EffiTex.Cli.Tests;
 
+[Collection("Serial")]
 public class ExecuteCommandTests
 {
     private static readonly string FIXTURES_PATH = System.IO.Path.Combine(
@@ -37,7 +38,7 @@ public class ExecuteCommandTests
     private RootCommand BuildRoot()
     {
         var root = new RootCommand();
-        root.AddCommand(ExecuteCommand.Build(_provider));
+        root.Subcommands.Add(ExecuteCommand.Build(_provider));
         return root;
     }
 
@@ -49,7 +50,7 @@ public class ExecuteCommandTests
         var outputPath = System.IO.Path.ChangeExtension(System.IO.Path.GetTempFileName(), ".pdf");
         try
         {
-            var exitCode = await BuildRoot().InvokeAsync(new[] { "execute", pdfPath, yamlPath, outputPath });
+            var exitCode = await BuildRoot().Parse(new[] { "execute", pdfPath, yamlPath, outputPath }).InvokeAsync();
             exitCode.Should().Be(0);
         }
         finally
@@ -66,7 +67,7 @@ public class ExecuteCommandTests
         var outputPath = System.IO.Path.ChangeExtension(System.IO.Path.GetTempFileName(), ".pdf");
         try
         {
-            await BuildRoot().InvokeAsync(new[] { "execute", pdfPath, yamlPath, outputPath });
+            await BuildRoot().Parse(new[] { "execute", pdfPath, yamlPath, outputPath }).InvokeAsync();
             System.IO.File.Exists(outputPath).Should().BeTrue();
         }
         finally
@@ -83,7 +84,7 @@ public class ExecuteCommandTests
         var outputPath = System.IO.Path.ChangeExtension(System.IO.Path.GetTempFileName(), ".pdf");
         try
         {
-            await BuildRoot().InvokeAsync(new[] { "execute", pdfPath, yamlPath, outputPath });
+            await BuildRoot().Parse(new[] { "execute", pdfPath, yamlPath, outputPath }).InvokeAsync();
 
             var act = () =>
             {
@@ -109,7 +110,7 @@ public class ExecuteCommandTests
             "version: \"1.0\"\nmetadata:\n  language: \"en-US\"\n  tab_order: \"invalid_value\"\n");
         try
         {
-            var exitCode = await BuildRoot().InvokeAsync(new[] { "execute", pdfPath, yamlPath, outputPath });
+            var exitCode = await BuildRoot().Parse(new[] { "execute", pdfPath, yamlPath, outputPath }).InvokeAsync();
             exitCode.Should().Be(2);
         }
         finally
@@ -127,13 +128,13 @@ public class ExecuteCommandTests
         var yamlPath = System.IO.Path.GetTempFileName() + ".yaml";
         await System.IO.File.WriteAllTextAsync(yamlPath,
             "version: \"1.0\"\nmetadata:\n  language: \"\"\n  tab_order: \"invalid_value\"\n");
-        var console = new TestOutputConsole();
+        using var capture = new ConsoleCapture();
         try
         {
-            await BuildRoot().InvokeAsync(new[] { "execute", pdfPath, yamlPath, outputPath }, console);
-            console.ErrorText.Should().Contain("Validation failed:");
-            console.ErrorText.Should().Contain("language");
-            console.ErrorText.Should().Contain("tab_order");
+            await BuildRoot().Parse(new[] { "execute", pdfPath, yamlPath, outputPath }).InvokeAsync();
+            capture.ErrorText.Should().Contain("Validation failed:");
+            capture.ErrorText.Should().Contain("language");
+            capture.ErrorText.Should().Contain("tab_order");
         }
         finally
         {
@@ -149,11 +150,11 @@ public class ExecuteCommandTests
         var outputPath = System.IO.Path.ChangeExtension(System.IO.Path.GetTempFileName(), ".pdf");
         try
         {
-            var console = new TestOutputConsole();
-            var exitCode = await BuildRoot().InvokeAsync(
-                new[] { "execute", "./nonexistent.pdf", yamlPath, outputPath }, console);
+            using var capture = new ConsoleCapture();
+            var exitCode = await BuildRoot().Parse(
+                new[] { "execute", "./nonexistent.pdf", yamlPath, outputPath }).InvokeAsync();
             exitCode.Should().Be(1);
-            console.ErrorText.Should().Contain("Error:");
+            capture.ErrorText.Should().Contain("Error:");
         }
         finally
         {
@@ -168,11 +169,11 @@ public class ExecuteCommandTests
         var outputPath = System.IO.Path.ChangeExtension(System.IO.Path.GetTempFileName(), ".pdf");
         try
         {
-            var console = new TestOutputConsole();
-            var exitCode = await BuildRoot().InvokeAsync(
-                new[] { "execute", pdfPath, "./nonexistent.yaml", outputPath }, console);
+            using var capture = new ConsoleCapture();
+            var exitCode = await BuildRoot().Parse(
+                new[] { "execute", pdfPath, "./nonexistent.yaml", outputPath }).InvokeAsync();
             exitCode.Should().Be(1);
-            console.ErrorText.Should().Contain("Error:");
+            capture.ErrorText.Should().Contain("Error:");
         }
         finally
         {
@@ -187,12 +188,12 @@ public class ExecuteCommandTests
         var yamlPath = System.IO.Path.Combine(FIXTURES_PATH, "metadata_only.yaml");
         var outputPath = System.IO.Path.Combine(
             System.IO.Path.GetTempPath(), "nonexistent_dir_execute987", "output.pdf");
-        var console = new TestOutputConsole();
+        using var capture = new ConsoleCapture();
 
-        var exitCode = await BuildRoot().InvokeAsync(
-            new[] { "execute", pdfPath, yamlPath, outputPath }, console);
+        var exitCode = await BuildRoot().Parse(
+            new[] { "execute", pdfPath, yamlPath, outputPath }).InvokeAsync();
         exitCode.Should().Be(1);
-        console.ErrorText.Should().Contain("Error:");
+        capture.ErrorText.Should().Contain("Error:");
     }
 
     [Fact]
@@ -203,7 +204,7 @@ public class ExecuteCommandTests
         var outputPath = System.IO.Path.ChangeExtension(System.IO.Path.GetTempFileName(), ".pdf");
         try
         {
-            var exitCode = await BuildRoot().InvokeAsync(new[] { "execute", pdfPath, yamlPath, outputPath });
+            var exitCode = await BuildRoot().Parse(new[] { "execute", pdfPath, yamlPath, outputPath }).InvokeAsync();
             exitCode.Should().Be(0);
         }
         finally
@@ -223,7 +224,7 @@ public class ExecuteCommandTests
         await System.IO.File.WriteAllTextAsync(ymlPath, content);
         try
         {
-            var exitCode = await BuildRoot().InvokeAsync(new[] { "execute", pdfPath, ymlPath, outputPath });
+            var exitCode = await BuildRoot().Parse(new[] { "execute", pdfPath, ymlPath, outputPath }).InvokeAsync();
             exitCode.Should().Be(0);
         }
         finally
@@ -241,7 +242,7 @@ public class ExecuteCommandTests
         var outputPath = System.IO.Path.ChangeExtension(System.IO.Path.GetTempFileName(), ".pdf");
         try
         {
-            var exitCode = await BuildRoot().InvokeAsync(new[] { "execute", pdfPath, jsonPath, outputPath });
+            var exitCode = await BuildRoot().Parse(new[] { "execute", pdfPath, jsonPath, outputPath }).InvokeAsync();
             exitCode.Should().Be(0);
         }
         finally
@@ -257,13 +258,13 @@ public class ExecuteCommandTests
         var outputPath = System.IO.Path.ChangeExtension(System.IO.Path.GetTempFileName(), ".pdf");
         var txtPath = System.IO.Path.GetTempFileName() + ".txt";
         await System.IO.File.WriteAllTextAsync(txtPath, "version: \"1.0\"");
-        var console = new TestOutputConsole();
+        using var capture = new ConsoleCapture();
         try
         {
-            var exitCode = await BuildRoot().InvokeAsync(
-                new[] { "execute", pdfPath, txtPath, outputPath }, console);
+            var exitCode = await BuildRoot().Parse(
+                new[] { "execute", pdfPath, txtPath, outputPath }).InvokeAsync();
             exitCode.Should().Be(1);
-            console.ErrorText.Should().Contain("Error:");
+            capture.ErrorText.Should().Contain("Error:");
         }
         finally
         {

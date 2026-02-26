@@ -8,6 +8,7 @@ using Xunit;
 
 namespace EffiTex.Cli.Tests;
 
+[Collection("Serial")]
 public class ProgramTests
 {
     private readonly IServiceProvider _provider;
@@ -41,23 +42,21 @@ public class ProgramTests
     public async Task RootCommand_Help_ExitCodeZeroAndPrintsUsage()
     {
         var root = new RootCommand("EffiTex PDF structure API — local CLI");
-        root.AddCommand(InspectCommand.Build(_provider));
-        root.AddCommand(ExecuteCommand.Build(_provider));
-        var console = new TestOutputConsole();
+        root.Subcommands.Add(InspectCommand.Build(_provider));
+        root.Subcommands.Add(ExecuteCommand.Build(_provider));
+        using var capture = new ConsoleCapture();
 
-        var exitCode = await root.InvokeAsync(new[] { "--help" }, console);
+        var exitCode = await root.Parse(new[] { "--help" }).InvokeAsync();
         exitCode.Should().Be(0);
-        console.OutText.Should().NotBeEmpty();
+        capture.OutText.Should().NotBeEmpty();
     }
 
     [Fact]
     public async Task InspectCommand_Help_ExitCodeZero()
     {
         var root = new RootCommand("EffiTex PDF structure API — local CLI");
-        root.AddCommand(InspectCommand.Build(_provider));
-        var console = new TestOutputConsole();
-
-        var exitCode = await root.InvokeAsync(new[] { "inspect", "--help" }, console);
+        root.Subcommands.Add(InspectCommand.Build(_provider));
+        var exitCode = await root.Parse(new[] { "inspect", "--help" }).InvokeAsync();
         exitCode.Should().Be(0);
     }
 
@@ -65,10 +64,8 @@ public class ProgramTests
     public async Task ExecuteCommand_Help_ExitCodeZero()
     {
         var root = new RootCommand("EffiTex PDF structure API — local CLI");
-        root.AddCommand(ExecuteCommand.Build(_provider));
-        var console = new TestOutputConsole();
-
-        var exitCode = await root.InvokeAsync(new[] { "execute", "--help" }, console);
+        root.Subcommands.Add(ExecuteCommand.Build(_provider));
+        var exitCode = await root.Parse(new[] { "execute", "--help" }).InvokeAsync();
         exitCode.Should().Be(0);
     }
 }

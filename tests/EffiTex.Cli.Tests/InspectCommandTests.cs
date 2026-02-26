@@ -8,6 +8,7 @@ using Xunit;
 
 namespace EffiTex.Cli.Tests;
 
+[Collection("Serial")]
 public class InspectCommandTests
 {
     private static readonly string FIXTURES_PATH = System.IO.Path.Combine(
@@ -25,7 +26,7 @@ public class InspectCommandTests
     private RootCommand BuildRoot()
     {
         var root = new RootCommand();
-        root.AddCommand(InspectCommand.Build(_provider));
+        root.Subcommands.Add(InspectCommand.Build(_provider));
         return root;
     }
 
@@ -36,7 +37,7 @@ public class InspectCommandTests
         var outputPath = System.IO.Path.ChangeExtension(System.IO.Path.GetTempFileName(), ".json");
         try
         {
-            var exitCode = await BuildRoot().InvokeAsync(new[] { "inspect", pdfPath, outputPath });
+            var exitCode = await BuildRoot().Parse(new[] { "inspect", pdfPath, outputPath }).InvokeAsync();
             exitCode.Should().Be(0);
         }
         finally
@@ -52,7 +53,7 @@ public class InspectCommandTests
         var outputPath = System.IO.Path.ChangeExtension(System.IO.Path.GetTempFileName(), ".json");
         try
         {
-            await BuildRoot().InvokeAsync(new[] { "inspect", pdfPath, outputPath });
+            await BuildRoot().Parse(new[] { "inspect", pdfPath, outputPath }).InvokeAsync();
             System.IO.File.Exists(outputPath).Should().BeTrue();
         }
         finally
@@ -68,7 +69,7 @@ public class InspectCommandTests
         var outputPath = System.IO.Path.ChangeExtension(System.IO.Path.GetTempFileName(), ".json");
         try
         {
-            await BuildRoot().InvokeAsync(new[] { "inspect", pdfPath, outputPath });
+            await BuildRoot().Parse(new[] { "inspect", pdfPath, outputPath }).InvokeAsync();
             var json = await System.IO.File.ReadAllTextAsync(outputPath);
             var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
             var response = JsonSerializer.Deserialize<InspectResponse>(json, options);
@@ -87,7 +88,7 @@ public class InspectCommandTests
         var outputPath = System.IO.Path.ChangeExtension(System.IO.Path.GetTempFileName(), ".json");
         try
         {
-            await BuildRoot().InvokeAsync(new[] { "inspect", pdfPath, outputPath });
+            await BuildRoot().Parse(new[] { "inspect", pdfPath, outputPath }).InvokeAsync();
             var json = await System.IO.File.ReadAllTextAsync(outputPath);
             var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
             var response = JsonSerializer.Deserialize<InspectResponse>(json, options);
@@ -105,7 +106,7 @@ public class InspectCommandTests
         var outputPath = System.IO.Path.ChangeExtension(System.IO.Path.GetTempFileName(), ".json");
         try
         {
-            var exitCode = await BuildRoot().InvokeAsync(new[] { "inspect", "./nonexistent.pdf", outputPath });
+            var exitCode = await BuildRoot().Parse(new[] { "inspect", "./nonexistent.pdf", outputPath }).InvokeAsync();
             exitCode.Should().Be(1);
         }
         finally
@@ -118,11 +119,11 @@ public class InspectCommandTests
     public async Task Inspect_NonExistentPdf_WritesErrorToStderr()
     {
         var outputPath = System.IO.Path.ChangeExtension(System.IO.Path.GetTempFileName(), ".json");
-        var console = new TestOutputConsole();
+        using var capture = new ConsoleCapture();
         try
         {
-            await BuildRoot().InvokeAsync(new[] { "inspect", "./nonexistent.pdf", outputPath }, console);
-            console.ErrorText.Should().Contain("Error:");
+            await BuildRoot().Parse(new[] { "inspect", "./nonexistent.pdf", outputPath }).InvokeAsync();
+            capture.ErrorText.Should().Contain("Error:");
         }
         finally
         {
@@ -137,7 +138,7 @@ public class InspectCommandTests
         var outputPath = System.IO.Path.Combine(
             System.IO.Path.GetTempPath(), "nonexistent_dir_inspect987", "output.json");
 
-        var exitCode = await BuildRoot().InvokeAsync(new[] { "inspect", pdfPath, outputPath });
+        var exitCode = await BuildRoot().Parse(new[] { "inspect", pdfPath, outputPath }).InvokeAsync();
         exitCode.Should().Be(1);
     }
 
@@ -147,9 +148,9 @@ public class InspectCommandTests
         var pdfPath = System.IO.Path.Combine(FIXTURES_PATH, "untagged_simple.pdf");
         var outputPath = System.IO.Path.Combine(
             System.IO.Path.GetTempPath(), "nonexistent_dir_inspect987", "output.json");
-        var console = new TestOutputConsole();
+        using var capture = new ConsoleCapture();
 
-        await BuildRoot().InvokeAsync(new[] { "inspect", pdfPath, outputPath }, console);
-        console.ErrorText.Should().Contain("Error:");
+        await BuildRoot().Parse(new[] { "inspect", pdfPath, outputPath }).InvokeAsync();
+        capture.ErrorText.Should().Contain("Error:");
     }
 }

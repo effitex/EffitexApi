@@ -1,6 +1,4 @@
 using System.CommandLine;
-using System.CommandLine.Invocation;
-using System.CommandLine.IO;
 using System.Text.Json;
 using EffiTex.Engine;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,30 +16,28 @@ public static class InspectCommand
     public static Command Build(IServiceProvider provider)
     {
         var command = new Command("inspect", "Inspect the structure of a PDF file");
-        var pdfArg = new Argument<FileInfo>("pdf-path", "Path to the input PDF file");
-        var outputArg = new Argument<FileInfo>("output-path", "Path where the JSON result will be written");
+        var pdfArg = new Argument<FileInfo>("pdf-path") { Description = "Path to the input PDF file" };
+        var outputArg = new Argument<FileInfo>("output-path") { Description = "Path where the JSON result will be written" };
 
-        command.AddArgument(pdfArg);
-        command.AddArgument(outputArg);
+        command.Arguments.Add(pdfArg);
+        command.Arguments.Add(outputArg);
 
-        command.SetHandler(async (InvocationContext ctx) =>
+        command.SetAction(async (parseResult, ct) =>
         {
-            var pdfPath = ctx.ParseResult.GetValueForArgument(pdfArg);
-            var outputPath = ctx.ParseResult.GetValueForArgument(outputArg);
+            var pdfPath = parseResult.GetValue(pdfArg);
+            var outputPath = parseResult.GetValue(outputArg);
 
             if (!pdfPath.Exists)
             {
-                StandardStreamWriter.WriteLine(ctx.Console.Error, $"Error: Input file not found: {pdfPath.FullName}");
-                ctx.ExitCode = 1;
-                return;
+                Console.Error.WriteLine($"Error: Input file not found: {pdfPath.FullName}");
+                return 1;
             }
 
             if (outputPath.Directory == null || !outputPath.Directory.Exists)
             {
                 var dirPath = outputPath.Directory?.FullName ?? System.IO.Path.GetDirectoryName(outputPath.FullName) ?? "unknown";
-                StandardStreamWriter.WriteLine(ctx.Console.Error, $"Error: Output directory not found: {dirPath}");
-                ctx.ExitCode = 1;
-                return;
+                Console.Error.WriteLine($"Error: Output directory not found: {dirPath}");
+                return 1;
             }
 
             try
@@ -50,13 +46,13 @@ public static class InspectCommand
                 using var stream = pdfPath.OpenRead();
                 var result = handler.Inspect(stream);
                 var json = JsonSerializer.Serialize(result, JSON_OPTIONS);
-                await File.WriteAllTextAsync(outputPath.FullName, json);
-                ctx.ExitCode = 0;
+                await File.WriteAllTextAsync(outputPath.FullName, json, ct);
+                return 0;
             }
             catch (Exception ex)
             {
-                StandardStreamWriter.WriteLine(ctx.Console.Error, $"Error: {ex.Message}");
-                ctx.ExitCode = 1;
+                Console.Error.WriteLine($"Error: {ex.Message}");
+                return 1;
             }
         });
 

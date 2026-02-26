@@ -1,6 +1,4 @@
 using System.CommandLine;
-using System.CommandLine.Invocation;
-using System.CommandLine.IO;
 using EffiTex.Core.Deserialization;
 using EffiTex.Core.Validation;
 using EffiTex.Engine;
@@ -13,40 +11,37 @@ public static class ExecuteCommand
     public static Command Build(IServiceProvider provider)
     {
         var command = new Command("execute", "Execute instructions against a PDF file");
-        var pdfArg = new Argument<FileInfo>("pdf-path", "Path to the input PDF file");
-        var instructionsArg = new Argument<FileInfo>("instructions-path", "Path to the YAML or JSON instruction file");
-        var outputArg = new Argument<FileInfo>("output-path", "Path where the result PDF will be written");
+        var pdfArg = new Argument<FileInfo>("pdf-path") { Description = "Path to the input PDF file" };
+        var instructionsArg = new Argument<FileInfo>("instructions-path") { Description = "Path to the YAML or JSON instruction file" };
+        var outputArg = new Argument<FileInfo>("output-path") { Description = "Path where the result PDF will be written" };
 
-        command.AddArgument(pdfArg);
-        command.AddArgument(instructionsArg);
-        command.AddArgument(outputArg);
+        command.Arguments.Add(pdfArg);
+        command.Arguments.Add(instructionsArg);
+        command.Arguments.Add(outputArg);
 
-        command.SetHandler(async (InvocationContext ctx) =>
+        command.SetAction(async (parseResult, ct) =>
         {
-            var pdfPath = ctx.ParseResult.GetValueForArgument(pdfArg);
-            var instructionsPath = ctx.ParseResult.GetValueForArgument(instructionsArg);
-            var outputPath = ctx.ParseResult.GetValueForArgument(outputArg);
+            var pdfPath = parseResult.GetValue(pdfArg);
+            var instructionsPath = parseResult.GetValue(instructionsArg);
+            var outputPath = parseResult.GetValue(outputArg);
 
             if (!pdfPath.Exists)
             {
-                StandardStreamWriter.WriteLine(ctx.Console.Error, $"Error: Input file not found: {pdfPath.FullName}");
-                ctx.ExitCode = 1;
-                return;
+                Console.Error.WriteLine($"Error: Input file not found: {pdfPath.FullName}");
+                return 1;
             }
 
             if (!instructionsPath.Exists)
             {
-                StandardStreamWriter.WriteLine(ctx.Console.Error, $"Error: Input file not found: {instructionsPath.FullName}");
-                ctx.ExitCode = 1;
-                return;
+                Console.Error.WriteLine($"Error: Input file not found: {instructionsPath.FullName}");
+                return 1;
             }
 
             if (outputPath.Directory == null || !outputPath.Directory.Exists)
             {
                 var dirPath = outputPath.Directory?.FullName ?? System.IO.Path.GetDirectoryName(outputPath.FullName) ?? "unknown";
-                StandardStreamWriter.WriteLine(ctx.Console.Error, $"Error: Output directory not found: {dirPath}");
-                ctx.ExitCode = 1;
-                return;
+                Console.Error.WriteLine($"Error: Output directory not found: {dirPath}");
+                return 1;
             }
 
             var ext = instructionsPath.Extension.ToLowerInvariant();
@@ -62,15 +57,14 @@ public static class ExecuteCommand
             }
             else
             {
-                StandardStreamWriter.WriteLine(ctx.Console.Error,
+                Console.Error.WriteLine(
                     $"Error: Unrecognized instruction file format '{ext}'. Use .yaml, .yml, or .json.");
-                ctx.ExitCode = 1;
-                return;
+                return 1;
             }
 
             try
             {
-                var content = await File.ReadAllTextAsync(instructionsPath.FullName);
+                var content = await File.ReadAllTextAsync(instructionsPath.FullName, ct);
                 var deserializer = provider.GetRequiredService<InstructionDeserializer>();
                 var instructions = deserializer.Deserialize(content, contentType);
 
@@ -79,13 +73,12 @@ public static class ExecuteCommand
 
                 if (!validation.IsValid)
                 {
-                    StandardStreamWriter.WriteLine(ctx.Console.Error, "Validation failed:");
+                    Console.Error.WriteLine("Validation failed:");
                     foreach (var error in validation.Errors)
                     {
-                        StandardStreamWriter.WriteLine(ctx.Console.Error, $"  - {error.Field}: {error.Message}");
+                        Console.Error.WriteLine($"  - {error.Field}: {error.Message}");
                     }
-                    ctx.ExitCode = 2;
-                    return;
+                    return 2;
                 }
 
                 var interpreter = provider.GetRequiredService<Interpreter>();
@@ -94,13 +87,13 @@ public static class ExecuteCommand
 
                 using var outputStream = File.Create(outputPath.FullName);
                 resultStream.Position = 0;
-                await resultStream.CopyToAsync(outputStream);
-                ctx.ExitCode = 0;
+                await resultStream.CopyToAsync(outputStream, ct);
+                return 0;
             }
             catch (Exception ex)
             {
-                StandardStreamWriter.WriteLine(ctx.Console.Error, $"Error: {ex.Message}");
-                ctx.ExitCode = 1;
+                Console.Error.WriteLine($"Error: {ex.Message}");
+                return 1;
             }
         });
 
