@@ -2,6 +2,7 @@ using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using FluentAssertions;
+using Microsoft.Extensions.Configuration;
 using Moq;
 using Xunit;
 using EffiTex.Api.Storage;
@@ -37,7 +38,16 @@ public class BlobStorageServiceTests
         _inspectClient.Setup(c => c.GetBlobClient(It.IsAny<string>())).Returns(_inspectBlobClient.Object);
         _executeClient.Setup(c => c.GetBlobClient(It.IsAny<string>())).Returns(_executeBlobClient.Object);
 
-        _sut = new BlobStorageService(_blobServiceClient.Object, "effitex-upload", "effitex-inspect", "effitex-execute");
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string>
+            {
+                ["EFFITEX_UPLOAD_CONTAINER"] = "effitex-upload",
+                ["EFFITEX_INSPECT_CONTAINER"] = "effitex-inspect",
+                ["EFFITEX_EXECUTE_CONTAINER"] = "effitex-execute"
+            })
+            .Build();
+
+        _sut = new BlobStorageService(_blobServiceClient.Object, configuration);
     }
 
     // --- Container routing tests ---

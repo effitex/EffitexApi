@@ -1,5 +1,6 @@
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using Microsoft.Extensions.Configuration;
 
 namespace EffiTex.Api.Storage;
 
@@ -9,11 +10,11 @@ public class BlobStorageService : IBlobStorageService
     private readonly BlobContainerClient _inspectClient;
     private readonly BlobContainerClient _executeClient;
 
-    public BlobStorageService(BlobServiceClient client, string containerName)
-        : this(client, containerName, containerName, containerName) { }
-
-    public BlobStorageService(BlobServiceClient client, string uploadContainer, string inspectContainer, string executeContainer)
+    public BlobStorageService(BlobServiceClient client, IConfiguration configuration)
     {
+        var uploadContainer = configuration["EFFITEX_UPLOAD_CONTAINER"] ?? "effitex-upload";
+        var inspectContainer = configuration["EFFITEX_INSPECT_CONTAINER"] ?? "effitex-inspect";
+        var executeContainer = configuration["EFFITEX_EXECUTE_CONTAINER"] ?? "effitex-execute";
         _uploadClient = client.GetBlobContainerClient(uploadContainer);
         _inspectClient = client.GetBlobContainerClient(inspectContainer);
         _executeClient = client.GetBlobContainerClient(executeContainer);
