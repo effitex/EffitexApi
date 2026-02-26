@@ -15,6 +15,7 @@ using EffiTex.Api.Storage;
 using EffiTex.Engine;
 using Hangfire;
 using Hangfire.InMemory;
+using Microsoft.Extensions.Hosting;
 
 namespace EffiTex.Api.Tests;
 
@@ -22,10 +23,13 @@ public class StartupTestFactory : WebApplicationFactory<Program>
 {
     static StartupTestFactory()
     {
-        // Must be set before WebApplicationFactory starts the host so that
-        // builder.Configuration["..."] ?? throw succeeds in Program.cs
-        Environment.SetEnvironmentVariable("EFFITEX_PG_CONNECTION", "Host=stub;Database=stub;Username=stub;Password=stub");
-        Environment.SetEnvironmentVariable("EFFITEX_STORAGE_CONNECTION", "UseDevelopmentStorage=true");
+        // Provide a fallback so Program.cs ?? throw succeeds when no real DB is configured.
+        // Preserved as-is if the caller has already set a real connection string.
+        Environment.SetEnvironmentVariable("EFFITEX_PG_CONNECTION",
+            Environment.GetEnvironmentVariable("EFFITEX_PG_CONNECTION")
+            ?? "Host=stub;Database=stub;Username=stub;Password=stub");
+        // EFFITEX_STORAGE_CONNECTION intentionally not set here — Program.cs skips blob
+        // registration in Testing mode and test factories provide a mock via ConfigureTestServices.
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -48,8 +52,17 @@ public class StartupTestFactory : WebApplicationFactory<Program>
             services.AddSingleton<DbContextOptions<EffiTexDbContext>>(inMemoryOptions);
             services.AddSingleton<DbContextOptions>(inMemoryOptions);
 
-            // Replace Hangfire with InMemory storage
+            // Replace Hangfire storage with InMemory and remove the server hosted service
             services.AddHangfire(cfg => cfg.UseInMemoryStorage());
+            var hangfireHostedServices = services
+                .Where(d => d.ServiceType == typeof(IHostedService) &&
+                            d.ImplementationType?.Namespace?.StartsWith("Hangfire") == true)
+                .ToList();
+            foreach (var d in hangfireHostedServices)
+                services.Remove(d);
+
+            // Mock IBackgroundJobClient so enqueue calls don't require a real server
+            services.AddSingleton<IBackgroundJobClient>(new Mock<IBackgroundJobClient>().Object);
 
             // Replace BlobServiceClient and IBlobStorageService with mocks
             var blobClientDesc = services.SingleOrDefault(

@@ -17,8 +17,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 var pgConnection = builder.Configuration["EFFITEX_PG_CONNECTION"]
     ?? throw new InvalidOperationException("EFFITEX_PG_CONNECTION is required");
-var storageConnection = builder.Configuration["EFFITEX_STORAGE_CONNECTION"]
-    ?? throw new InvalidOperationException("EFFITEX_STORAGE_CONNECTION is required");
+var storageConnection = builder.Configuration["EFFITEX_STORAGE_CONNECTION"];
+if (storageConnection == null && !builder.Environment.IsEnvironment("Testing"))
+    throw new InvalidOperationException("EFFITEX_STORAGE_CONNECTION is required");
 var ttlHours = int.Parse(builder.Configuration["EFFITEX_TTL_HOURS"] ?? "24");
 
 // EF Core
@@ -28,9 +29,12 @@ builder.Services.AddDbContext<EffiTexDbContext>(opts =>
 // Repository
 builder.Services.AddScoped<IDocumentRepository, DocumentRepository>();
 
-// Blob Storage
-builder.Services.AddSingleton(_ => new BlobServiceClient(storageConnection));
-builder.Services.AddSingleton<IBlobStorageService, BlobStorageService>();
+// Blob Storage — skipped in Testing (test factories provide a mock via ConfigureTestServices)
+if (storageConnection != null)
+{
+    builder.Services.AddSingleton(_ => new BlobServiceClient(storageConnection));
+    builder.Services.AddSingleton<IBlobStorageService, BlobStorageService>();
+}
 
 // TTL
 builder.Services.AddSingleton(new EffiTexOptions { TtlHours = ttlHours });
