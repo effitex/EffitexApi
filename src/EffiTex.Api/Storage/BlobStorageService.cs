@@ -1,6 +1,5 @@
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
-using Microsoft.Extensions.Options;
 
 namespace EffiTex.Api.Storage;
 
@@ -8,10 +7,10 @@ public class BlobStorageService : IBlobStorageService
 {
     private readonly BlobContainerClient _container;
 
-    public BlobStorageService(BlobServiceClient client, IConfiguration configuration)
+    public BlobStorageService(BlobServiceClient client, string containerName)
     {
-        _container = client.GetBlobContainerClient(configuration["EFFITEX_BLOB_CONTAINER"]);
-        _container.CreateIfNotExistsAsync().GetAwaiter().GetResult();
+        _container = client.GetBlobContainerClient(containerName);
+        _container.CreateIfNotExists();
     }
 
     public async Task UploadAsync(string blobPath, Stream content, string contentType, CancellationToken ct = default)
