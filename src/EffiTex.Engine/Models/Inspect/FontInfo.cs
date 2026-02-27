@@ -17,13 +17,10 @@ public class FontInfo
     public CmapInfoData CmapInfo { get; set; }
     public CidToGidMapData CidToGidMap { get; set; }
     public EncodingDetailData EncodingDetail { get; set; }
-    public List<CmapSubtableData> CmapSubtables { get; set; }
     public Dictionary<string, string> TounicodeMappings { get; set; }
     public List<int> UnmappableCharCodes { get; set; }
     public Type3FontInfoData Type3Info { get; set; }
-    public List<string> Type1GlyphNames { get; set; }
     public PdfStreamData FontProgram { get; set; }
-    public PdfStreamData CidSet { get; set; }
 }
 
 public class CidSystemInfoData
@@ -58,13 +55,6 @@ public class EncodingDetailData
     public string BaseEncoding { get; set; }
     public bool HasDifferencesArray { get; set; }
     public List<string> DifferencesGlyphNames { get; set; }
-}
-
-public class CmapSubtableData
-{
-    public int PlatformId { get; set; }
-    public int EncodingId { get; set; }
-    public int Format { get; set; }
 }
 
 public class Type3FontInfoData
