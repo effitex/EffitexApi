@@ -586,22 +586,47 @@ public class InspectHandlerTests
     }
 
     [Fact]
-    public void Inspect_FontWithCidSet_CidSetIsPopulated()
+    public void Inspect_AnyDocument_ColorPairsNotNull()
     {
-        // Uses whatever fixture has an embedded CIDFont. If none have a CIDSet stream,
-        // the test passes vacuously — this is acceptable until a fixture with CIDSet exists.
-        var path = FixtureGenerator.EnsureMixedFonts();
+        var path = FixtureGenerator.EnsureUntaggedSimple();
         var result = inspectFixture(path);
 
-        var fontsWithCidSet = result.Fonts.Where(f => f.HasCidset).ToList();
-        if (!fontsWithCidSet.Any()) return;
+        result.ColorPairs.Should().NotBeNull();
+    }
 
-        foreach (var font in fontsWithCidSet)
+    [Fact]
+    public void Inspect_DocumentWithText_HasAtLeastOneColorPair()
+    {
+        var path = FixtureGenerator.EnsureMultipleEmbeddedFonts();
+        var result = inspectFixture(path);
+
+        result.ColorPairs.Count.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public void Inspect_ColorPairs_ForegroundAndBackgroundAreValidHex()
+    {
+        var path = FixtureGenerator.EnsureMultipleEmbeddedFonts();
+        var result = inspectFixture(path);
+
+        foreach (var pair in result.ColorPairs)
         {
-            font.CidSet.Should().NotBeNull(
-                $"font '{font.Name}' has HasCidset=true so CidSet must be populated");
-            font.CidSet.Data.Should().NotBeNullOrEmpty();
-            Convert.FromBase64String(font.CidSet.Data).Should().NotBeEmpty();
+            pair.Foreground.Should().MatchRegex("^[0-9A-F]{6}$");
+            pair.Background.Should().MatchRegex("^[0-9A-F]{6}$");
         }
     }
+
+    [Fact]
+    public void Inspect_ColorPairs_SortedByOccurrenceCountDescending()
+    {
+        var path = FixtureGenerator.EnsureMultipleEmbeddedFonts();
+        var result = inspectFixture(path);
+
+        if (result.ColorPairs.Count > 1)
+        {
+            for (int i = 0; i < result.ColorPairs.Count - 1; i++)
+                result.ColorPairs[i].OccurrenceCount.Should().BeGreaterThanOrEqualTo(result.ColorPairs[i + 1].OccurrenceCount);
+        }
+    }
+
 }

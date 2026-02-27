@@ -25,7 +25,7 @@ public class InspectHandler
         using var reader = new PdfReader(memStream);
         using var pdf = new PdfDocument(reader);
 
-        var (pages, docFonts) = readPages(pdf);
+        var (pages, docFonts, colorPairs) = readPages(pdf);
 
         var response = new InspectResponse
         {
@@ -39,7 +39,8 @@ public class InspectHandler
             Pages = pages,
             Outlines = readOutlines(pdf),
             EmbeddedFiles = readEmbeddedFiles(pdf),
-            OcgConfigurations = readOcgConfigurations(pdf)
+            OcgConfigurations = readOcgConfigurations(pdf),
+            ColorPairs = colorPairs
         };
 
         return response;
@@ -363,10 +364,11 @@ public class InspectHandler
         return result;
     }
 
-    private static (List<PageInfo> pages, List<DocumentFont> docFonts) readPages(PdfDocument pdf)
+    private static (List<PageInfo> pages, List<DocumentFont> docFonts, List<Models.Inspect.ColorPairInfo> colorPairs) readPages(PdfDocument pdf)
     {
         var pages = new List<PageInfo>();
         var allOccurrences = new List<(int pageNum, FontInfo info)>();
+        var allPairs = new List<(string Foreground, string Background)>();
 
         for (int i = 1; i <= pdf.GetNumberOfPages(); i++)
         {
@@ -391,6 +393,10 @@ public class InspectHandler
 
             foreach (var fontInfo in pageFonts)
                 allOccurrences.Add((i, fontInfo));
+
+            var extractor = new ColorPairExtractor();
+            extractor.ProcessPage(page);
+            allPairs.AddRange(extractor.GetPairs());
         }
 
         var docFonts = allOccurrences
@@ -414,19 +420,16 @@ public class InspectHandler
                     CmapInfo = first.CmapInfo,
                     CidToGidMap = first.CidToGidMap,
                     EncodingDetail = first.EncodingDetail,
-                    CmapSubtables = first.CmapSubtables,
                     TounicodeMappings = first.TounicodeMappings,
                     UnmappableCharCodes = first.UnmappableCharCodes,
                     Type3Info = first.Type3Info,
-                    Type1GlyphNames = first.Type1GlyphNames,
                     FontProgram = first.FontProgram,
-                    CidSet = first.CidSet,
                     Pages = g.Select(o => o.pageNum).OrderBy(p => p).ToArray()
                 };
             })
             .ToList();
 
-        return (pages, docFonts);
+        return (pages, docFonts, ColorPairExtractor.Aggregate(allPairs));
     }
 
     private static List<FontInfo> readPageFonts(PdfDocument pdf, int pageNumber)
@@ -490,9 +493,7 @@ public class InspectHandler
             HasFontDescriptor = hasFontDescriptor,
             EncodingDetail = encodingDetail,
             TounicodeMappings = hasTounicode ? parseTounicode(fontDict) : new Dictionary<string, string>(),
-            UnmappableCharCodes = new List<int>(),
-            CmapSubtables = new List<CmapSubtableData>(),
-            Type1GlyphNames = new List<string>()
+            UnmappableCharCodes = new List<int>()
         };
 
         if (subtype == "Type0")
@@ -792,7 +793,6 @@ public class InspectHandler
         if (fontFile2Stream != null)
         {
             fontInfo.FontProgram = buildPdfStreamData(fontFile2Stream);
-            parseTrueTypeFontProgram(fontFile2Stream.GetBytes(), fontInfo);
         }
         else
         {
@@ -805,16 +805,9 @@ public class InspectHandler
             {
                 var fontFileStream = getFontStreamObject(descriptor, "FontFile");
                 if (fontFileStream != null)
-                {
                     fontInfo.FontProgram = buildPdfStreamData(fontFileStream);
-                    parseType1FontProgram(fontFileStream.GetBytes(), fontInfo);
-                }
             }
         }
-
-        var cidSetStream = getFontStreamObject(descriptor, "CIDSet");
-        if (cidSetStream != null)
-            fontInfo.CidSet = buildPdfStreamData(cidSetStream);
     }
 
     private static PdfStream getFontStreamObject(PdfDictionary descriptor, string key)
@@ -886,87 +879,6 @@ public class InspectHandler
         };
     }
 
-    private static void parseTrueTypeFontProgram(byte[] data, FontInfo fontInfo)
-    {
-        try
-        {
-            if (data == null || data.Length < 12) return;
-
-            int numTables = readUInt16BE(data, 4);
-            var tables = new Dictionary<string, (int offset, int length)>();
-
-            for (int i = 0; i < numTables; i++)
-            {
-                int recOff = 12 + i * 16;
-                if (recOff + 16 > data.Length) break;
-
-                var tag = Encoding.ASCII.GetString(data, recOff, 4);
-                int tblOff = (int)readUInt32BE(data, recOff + 8);
-                int tblLen = (int)readUInt32BE(data, recOff + 12);
-                tables[tag] = (tblOff, tblLen);
-            }
-
-            // cmap → CmapSubtables
-            if (tables.TryGetValue("cmap", out var cmap))
-            {
-                parseCmapSubtables(data, cmap.offset, cmap.length, fontInfo);
-            }
-        }
-        catch
-        {
-            // Ignore font program parsing errors
-        }
-    }
-
-    private static void parseCmapSubtables(byte[] data, int offset, int length, FontInfo fontInfo)
-    {
-        if (offset + 4 > data.Length) return;
-        int numSubtables = readUInt16BE(data, offset + 2);
-
-        for (int i = 0; i < numSubtables; i++)
-        {
-            int recOff = offset + 4 + i * 8;
-            if (recOff + 8 > data.Length) break;
-
-            int platformId = readUInt16BE(data, recOff);
-            int encodingId = readUInt16BE(data, recOff + 2);
-            int subtableOffset = (int)readUInt32BE(data, recOff + 4);
-            int absOff = offset + subtableOffset;
-            int format = absOff + 2 <= data.Length ? readUInt16BE(data, absOff) : 0;
-
-            fontInfo.CmapSubtables.Add(new CmapSubtableData
-            {
-                PlatformId = platformId,
-                EncodingId = encodingId,
-                Format = format
-            });
-        }
-    }
-
-    private static void parseType1FontProgram(byte[] data, FontInfo fontInfo)
-    {
-        // Parse Type1 font for /CharStrings glyph names
-        try
-        {
-            if (data == null || data.Length == 0) return;
-            var content = Encoding.Latin1.GetString(data);
-            var charStringsMatch = Regex.Match(content, @"/CharStrings\s+\d+\s+dict");
-            if (!charStringsMatch.Success) return;
-
-            int searchStart = charStringsMatch.Index + charStringsMatch.Length;
-            var glyphPattern = new Regex(@"/(\w+)\s+\d+\s+RD\s");
-            var matches = glyphPattern.Matches(content, searchStart);
-            foreach (Match m in matches)
-            {
-                fontInfo.Type1GlyphNames.Add(m.Groups[1].Value);
-            }
-        }
-        catch
-        {
-            // Ignore Type1 parsing errors
-        }
-    }
-
     private static void detectUnmappableCharCodes(PdfDictionary fontDict, FontInfo fontInfo)
     {
         var subtype = fontDict.GetAsName(PdfName.Subtype)?.GetValue();
@@ -1015,17 +927,6 @@ public class InspectHandler
                 }
             }
         }
-    }
-
-    private static int readUInt16BE(byte[] data, int offset)
-    {
-        return (data[offset] << 8) | data[offset + 1];
-    }
-
-    private static uint readUInt32BE(byte[] data, int offset)
-    {
-        return ((uint)data[offset] << 24) | ((uint)data[offset + 1] << 16)
-            | ((uint)data[offset + 2] << 8) | data[offset + 3];
     }
 
     private static string[] getStandardMacGlyphNames()

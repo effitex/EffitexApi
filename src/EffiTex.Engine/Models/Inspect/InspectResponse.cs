@@ -13,4 +13,5 @@ public class InspectResponse
     public List<OutlineNode> Outlines { get; set; }
     public List<EmbeddedFileInfo> EmbeddedFiles { get; set; }
     public List<OcgConfigInfo> OcgConfigurations { get; set; }
+    public List<ColorPairInfo> ColorPairs { get; set; } = new();
 }
